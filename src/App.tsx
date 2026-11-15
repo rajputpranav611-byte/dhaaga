@@ -114,7 +114,7 @@ function Login({ onLogin, demo }: { onLogin: (circle: string, role: Role, code: 
 
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [view, setView] = useState<View>("Today");
+  const [view, setView] = useState<View>(() => window.location.pathname === "/outbox" ? "Letters" : "Today");
   const [notice, setNotice] = useState("");
   const [elderMode, setElderMode] = useState(false);
   const [language, setLanguage] = useState<Language>("en");
@@ -128,7 +128,17 @@ function App() {
   const [familyEscalation, setFamilyEscalation] = useState(45);
 
   const refresh = useCallback(async () => { const data = await api.bootstrap(); setSnapshot(data); }, []);
+  const navigate = useCallback((next: View) => {
+    setView(next);
+    const path = next === "Letters" ? "/outbox" : "/";
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+  }, []);
   useEffect(() => { void api.session().then((authenticated) => authenticated ? refresh() : undefined).catch(() => undefined); }, [refresh]);
+  useEffect(() => {
+    const onPopState = () => setView(window.location.pathname === "/outbox" ? "Letters" : "Today");
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(""), 3800); return () => window.clearTimeout(timer); }, [notice]);
   useEffect(() => {
     if (!snapshot?.checkin) return;
@@ -144,7 +154,7 @@ function App() {
 
   const handleLogin = async (circle: string, role: Role, passcode: string, name: string, email: string) => {
     await api.login({ circle, passcode, role, name: name || role, email });
-    setView("Today");
+    setView(window.location.pathname === "/outbox" ? "Letters" : "Today");
     await refresh();
   };
   const act = async (task: () => Promise<unknown>, message: string) => {
@@ -181,19 +191,19 @@ function App() {
   return (
     <div className={elderMode ? "app-shell elder-mode" : "app-shell"}>
       <aside className="app-sidebar"><a className="wordmark" href="#"><span className="brand-mark">ध</span> dhaaga</a><div className="circle-badge"><span>CIRCLE / PRIVATE</span><strong>{snapshot.circle.name}</strong><small>{snapshot.circle.elder_name}’s care circle</small></div>
-        <nav aria-label="Main navigation">{nav.map((item, index) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}><span className="nav-icon">{["◷", "◉", "▤", "♧", "✉"][index]}</span>{t(item)}{item === "Circle" && pending.length > 0 && <i className="nav-count">{pending.length}</i>}</button>)}</nav>
+        <nav aria-label="Main navigation">{nav.map((item, index) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => navigate(item)}><span className="nav-icon">{["◷", "◉", "▤", "♧", "✉"][index]}</span>{t(item)}{item === "Circle" && pending.length > 0 && <i className="nav-count">{pending.length}</i>}</button>)}</nav>
         <button className="sidebar-mode" onClick={() => setElderMode(!elderMode)}><span>◉</span> {elderMode ? t("exitElder") : t("elderMode")} <kbd>↗</kbd></button>
-        <div className="sidebar-member"><div className="avatar">{greetingName(snapshot.member.name).slice(0, 1)}</div><span><b>{snapshot.member.name}</b><small>{role} · <button onClick={() => void api.logout().then(() => { setSnapshot(null); setView("Today"); setElderMode(false); })}>Sign out</button></small></span></div>
+        <div className="sidebar-member"><div className="avatar">{greetingName(snapshot.member.name).slice(0, 1)}</div><span><b>{snapshot.member.name}</b><small>{role} · <button onClick={() => void api.logout().then(() => { setSnapshot(null); navigate("Today"); setElderMode(false); })}>Sign out</button></small></span></div>
       </aside>
       <main className="dashboard">
         <header className="dashboard-top"><span className="breadcrumb">{t(view).toUpperCase()} <i>/</i> TULSI CIRCLE</span>{elderMode && <label className="language-picker"><span>{t("language")}</span><select value={language} onChange={(event) => setLanguage(event.target.value as Language)} aria-label="Choose language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="gu">ગુજરાતી</option></select></label>}<button className="circle-presence"><i /> Circle is in step <span>↗</span></button></header>
         {view === "Today" && <div className="page-content">
           <div className="dashboard-intro"><div><p className="eyebrow">{new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toUpperCase()} <span>✳</span></p><h1>{t("greeting")}, {greetingName(snapshot.circle.elder_name)}.</h1><p className="intro-note">{t("subtitle")}</p></div><div className="day-stamp"><span>{t("Today").toUpperCase()}</span><b>{new Intl.DateTimeFormat("en-IN", { day: "2-digit" }).format(new Date())}</b><small>{new Intl.DateTimeFormat("en-IN", { month: "short" }).format(new Date())}</small></div></div>
-          {pending.length > 0 && role === "Elder" && <section className="approval-card"><div className="approval-icon">✳</div><div><span className="eyebrow">ELDER TASK · YOUR CHOICE</span><h2>{pending.length === 1 ? "A small change to consider." : `${pending.length} changes are waiting for you.`}</h2><p>{pending[0].proposed_by} suggested {pending[0].action === "create" ? `a new ${pending[0].entity}` : `an update to ${pending[0].entity}`}. Nothing changes until you say so.</p></div><button className="button button-dark" onClick={() => setView("Circle")}>Take a look <span>↗</span></button></section>}
+          {pending.length > 0 && role === "Elder" && <section className="approval-card"><div className="approval-icon">✳</div><div><span className="eyebrow">ELDER TASK · YOUR CHOICE</span><h2>{pending.length === 1 ? "A small change to consider." : `${pending.length} changes are waiting for you.`}</h2><p>{pending[0].proposed_by} suggested {pending[0].action === "create" ? `a new ${pending[0].entity}` : `an update to ${pending[0].entity}`}. Nothing changes until you say so.</p></div><button className="button button-dark" onClick={() => navigate("Circle")}>Take a look <span>↗</span></button></section>}
           <div className="today-grid"><section className="panel thread-panel"><div className="panel-heading"><div><span className="eyebrow">{t("health")}</span><h2>{t("rhythm")}</h2></div><span className="status-chip circle-chip"><i /> CIRCLE TASK</span></div><Thread doses={snapshot.doses} elderMode={elderMode} language={language} onTake={(dose, status) => void act(() => api.setDose(dose.id, status), status === "taken" ? `${dose.medication} marked as taken.` : `${dose.medication} marked as skipped.`)} /><div className="thread-legend"><span><i className="legend-taken" /> Gathered</span><span><i className="legend-next" /> Coming up</span><span><i className="legend-missed" /> Missed / skipped</span><button onClick={() => { const speech = new SpeechSynthesisUtterance(`Today, ${takenCount} of ${snapshot.doses.length} medicines taken. ${nextDose ? `${nextDose.medication} is next at ${timeLabel(nextDose.scheduled_at)}.` : "You are all caught up."}`); speech.lang = language === "hi" ? "hi-IN" : language === "gu" ? "gu-IN" : "en-IN"; window.speechSynthesis?.speak(speech); }}>▤ Read aloud</button></div></section>
             <div className="right-rail"><section className="panel next-panel"><div className="panel-heading"><div><span className="eyebrow">ON THE HORIZON</span><h2>{t("next")}</h2></div><span className="sun-icon">☼</span></div>{nextDose ? <div className="next-card"><span className="next-time">{timeLabel(nextDose.scheduled_at)}</span><b>{nextDose.medication}</b><small>{nextDose.dose}</small><button onClick={() => void act(() => api.setDose(nextDose.id, "taken"), "Dose marked as taken.")} className="button button-outline">{elderMode ? t("take") : "Mark as taken"} <span>↗</span></button></div> : <p className="empty-note">All of today’s doses are accounted for. Take a breath.</p>}</section>
               <section className="panel adherence-panel"><div><span className="eyebrow">ADHERENCE · TODAY</span><strong>{adherence}<small>%</small></strong><p>{takenCount} of {snapshot.doses.length} beads gathered</p><div className="adherence-periods"><span>7 days <b>{snapshot.adherence.week}%</b></span><span>30 days <b>{snapshot.adherence.month}%</b></span></div></div><svg viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="34" /><circle className="progress-ring" cx="42" cy="42" r="34" style={{ strokeDasharray: `${(adherence / 100) * 214} 214` }} /></svg></section></div></div>
-          <div className="lower-grid">          <section className="panel appointments-mini"><div className="panel-heading"><div><span className="eyebrow">A LITTLE PREPARATION</span><h2>Coming together</h2></div><button className="plain-link" onClick={() => setView("Appointments")}>All appointments ↗</button></div>{upcoming.length ? upcoming.slice(0, 2).map((appointment) => <AppointmentRow key={appointment.id} appointment={appointment} />) : <p className="empty-note">No appointments on the calendar just yet.</p>}</section>
+          <div className="lower-grid">          <section className="panel appointments-mini"><div className="panel-heading"><div><span className="eyebrow">A LITTLE PREPARATION</span><h2>Coming together</h2></div><button className="plain-link" onClick={() => navigate("Appointments")}>All appointments ↗</button></div>{upcoming.length ? upcoming.slice(0, 2).map((appointment) => <AppointmentRow key={appointment.id} appointment={appointment} />) : <p className="empty-note">No appointments on the calendar just yet.</p>}</section>
             <section className="panel checkin-panel"><div className="panel-heading"><div><span className="eyebrow">A MOMENT FOR YOU</span><h2>{t("checkin")}</h2></div><span>♡</span></div><div className="mood-faces" role="radiogroup" aria-label={t("checkin")}>{["low", "okay", "fine", "good", "bright"].map((label, index) => <button key={label} aria-label={`${index + 1} ${label}`} aria-checked={mood === index + 1} role="radio" className={mood === index + 1 ? "mood-selected" : ""} onClick={() => setMood(index + 1)}><MoodFace mood={index + 1} /><span>{label}</span></button>)}</div>{mood > 0 && <div className="checkin-note"><input value={moodNote} onChange={(event) => setMoodNote(event.target.value)} placeholder="Anything you’d like us to know? (optional)" /><button onClick={() => void act(() => api.checkin(mood, moodNote), "Check-in shared with your circle.")}>Share ↗</button></div>}</section></div>
           <div className="dashboard-footer-note"><span>✳</span> Care is not a checklist. It’s people, showing up for each other.</div>
           {demoEnabled && role === "Elder" && <section className="time-machine"><span>TIME MACHINE · DEMO</span><div><button onClick={() => advanceClock(10, "Demo clock advanced by 10 minutes.")}>+10 min</button><button onClick={() => advanceClock(20, "Demo clock advanced by 20 minutes.")}>+20 min</button><button onClick={() => advanceClock(45, "Demo clock advanced by 45 minutes.")}>+45 min</button><button onClick={() => { const futureDose = snapshot.doses.find((dose) => dose.status === "pending" && Date.parse(dose.scheduled_at) > Date.now()); const minutes = futureDose ? Math.max(1, Math.ceil((Date.parse(futureDose.scheduled_at) - Date.now()) / 60_000)) : 45; advanceClock(minutes, "Demo clock moved to the next dose."); }}>Next dose</button></div><small>Clock advanced {timeShift} minutes · the scheduler checks the new time right away</small></section>}
