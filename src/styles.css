@@ -345,6 +345,26 @@ h1, h2, h3, p { margin-top: 0; }
 .outbox-message strong { font: 500 15px var(--serif); }
 .outbox-message time { color: var(--muted); font-size: 9px; }
 .outbox-message p { margin: 8px 0 0; color: #625d53; font-size: 11px; line-height: 1.65; }
+.brief-page { max-width: 1080px; }
+.brief-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.brief-header .page-title { flex: 1; }
+.brief-print { margin-bottom: 4px; white-space: nowrap; }
+.brief-meta { margin: -8px 0 14px; color: var(--muted); font-size: 10px; }
+.brief-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.brief-section { min-width: 0; padding: 15px; }
+.brief-section h2 { margin: 0 0 10px; font: 500 16px var(--serif); }
+.brief-section > p, .brief-section li { color: #625d53; font-size: 10px; line-height: 1.55; }
+.brief-section ul { margin: 0; padding-left: 18px; }
+.brief-section li + li { margin-top: 5px; }
+.brief-row { padding: 7px 0; display: grid; gap: 3px; border-top: 1px solid #e8e0d1; font-size: 10px; }
+.brief-row > span, .brief-row small { color: #625d53; font-size: 9px; line-height: 1.4; }
+.brief-metrics { display: grid; gap: 8px; }
+.brief-metrics > div { padding: 8px 0; display: grid; gap: 4px; border-top: 1px solid #e8e0d1; font-size: 10px; }
+.brief-metrics span { color: #625d53; }
+.brief-questions { grid-column: 1 / -1; }
+.brief-questions label { display: block; margin-bottom: 5px; color: #625d53; font-size: 10px; }
+.brief-questions textarea { width: 100%; padding: 9px; border: 1px solid #bfb5a3; background: var(--paper-light); color: var(--ink); font: inherit; font-size: 11px; resize: vertical; }
+.brief-questions .button { margin-top: 8px; }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 20; max-width: min(390px, calc(100vw - 32px)); padding: 13px 15px; display: flex; gap: 20px; align-items: center; border: 1px solid var(--ink); background: var(--paper-light); box-shadow: 4px 4px 0 var(--gold); font-size: 12px; }
 .toast button { border: 0; background: transparent; font-size: 18px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; padding: 18px; display: grid; place-items: center; background: rgb(28 27 24 / 42%); }
@@ -379,6 +399,25 @@ h1, h2, h3, p { margin-top: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+@page { size: A4; margin: 12mm; }
+@media print {
+  html, body, #root { width: auto !important; min-height: 0 !important; margin: 0 !important; background: #fff !important; color: #000 !important; }
+  .app-sidebar, .dashboard-top, .brief-print, .toast { display: none !important; }
+  .app-shell { display: block !important; min-height: 0 !important; padding: 0 !important; background: #fff !important; }
+  .dashboard { min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: #fff !important; color: #000 !important; }
+  .brief-page { max-width: none !important; margin: 0 !important; padding: 0 !important; color: #000 !important; }
+  .brief-header .page-title { margin: 0 0 8px !important; }
+  .brief-header .page-title h1 { margin: 0 !important; color: #000 !important; font-size: 22pt !important; }
+  .brief-header .page-title > div > p, .brief-meta { color: #000 !important; font-size: 8pt !important; }
+  .brief-grid { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }
+  .brief-section { padding: 7px !important; border: 1px solid #555 !important; background: #fff !important; box-shadow: none !important; break-inside: avoid; }
+  .brief-section h2 { margin-bottom: 5px !important; color: #000 !important; font-size: 11pt !important; }
+  .brief-section > p, .brief-section li, .brief-row, .brief-row > span, .brief-row small, .brief-metrics > div, .brief-metrics span { color: #000 !important; font-size: 7.5pt !important; line-height: 1.25 !important; }
+  .brief-row, .brief-metrics > div { padding: 3px 0 !important; }
+  .brief-questions textarea { height: 54px !important; border: 1px solid #444 !important; background: #fff !important; color: #000 !important; font-size: 8pt !important; resize: none; }
+  .brief-questions label { color: #000 !important; font-size: 7pt !important; }
+  .brief-questions .button { display: none !important; }
 }
 @media (min-width: 1500px) { .page-content { padding-right: 64px; padding-left: 64px; } }
 @media (max-width: 1080px) {
@@ -415,7 +454,7 @@ h1, h2, h3, p { margin-top: 0; }
   .app-shell { display: block; padding-bottom: 65px; }
   .app-sidebar { position: fixed; z-index: 5; inset: auto 0 0; width: 100%; height: 61px; padding: 0; display: block; border-top: 1px solid var(--line); border-right: 0; background: #eee6d6; }
   .app-sidebar > .wordmark, .circle-badge, .sidebar-mode, .sidebar-member { display: none; }
-  .app-sidebar nav { height: 100%; margin: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+  .app-sidebar nav { height: 100%; margin: 0; display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; }
   .app-sidebar nav button { min-height: 100%; padding: 5px 2px 3px; flex-direction: column; justify-content: center; gap: 2px; font-size: 8px; }
   .app-sidebar nav button.nav-active { box-shadow: inset 0 2px var(--terracotta); }
   .nav-icon { font-size: 17px; }
@@ -453,6 +492,9 @@ h1, h2, h3, p { margin-top: 0; }
   .page-title { min-height: auto; margin-bottom: 17px; align-items: flex-start; gap: 10px; }
   .page-title h1 { font-size: 31px; }
   .page-title > .button { min-height: 36px; padding: 0 8px; font-size: 9px; }
+  .brief-header { align-items: flex-start; flex-direction: column; }
+  .brief-grid { grid-template-columns: 1fr; }
+  .brief-questions { grid-column: auto; }
   .page-title > div > p:last-child { max-width: 230px; line-height: 1.5; }
   .content-panel { padding: 13px; }
   .medication-grid { grid-template-columns: 1fr; }

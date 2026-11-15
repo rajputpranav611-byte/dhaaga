@@ -4,6 +4,7 @@ process.env.DHAAGA_DB = ":memory:";
 process.env.NODE_ENV = "test";
 process.env.DEMO_MODE = "true";
 process.env.SESSION_SECRET = "test-only-session-secret";
+process.env.RESEND_API_KEY = "";
 
 let db: (typeof import("../server/db"))["db"];
 let security: typeof import("../server/security");
@@ -97,6 +98,38 @@ describe("Dhaaga core flows", () => {
     expect(domain.findInteractionWarnings("Paracetamol", ["acetaminophen"])).toHaveLength(1);
   });
 
+  it("serves a database-backed doctor brief to Family and leaves empty periods explicit", async () => {
+    const familyCookie = await signIn("Family", "Kabir");
+    const response = await fetch(`${baseUrl}/brief`, { headers: { Cookie: familyCookie } });
+    expect(response.status).toBe(200);
+    const brief = await response.json() as { medications: { name: string }[]; adherence: { sevenDays: { percentage: number | null; total: number } }; missedOrLate: unknown[]; moodTrend: unknown[]; questions: string[] };
+    expect(brief.medications.map((medication) => medication.name)).toContain("Amlodipine");
+    expect(brief.adherence.sevenDays).toMatchObject({ percentage: null, total: 0 });
+    expect(brief.missedOrLate).toEqual([]);
+    expect(brief.moodTrend).toEqual([]);
+    expect(brief.questions).toEqual([]);
+  });
+
+  it("lets a Caretaker save doctor questions but rejects Family writes", async () => {
+    const familyCookie = await signIn("Family", "Kabir");
+    const denied = await fetch(`${baseUrl}/brief/questions`, {
+      method: "PUT",
+      headers: { Cookie: familyCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
+      body: JSON.stringify({ questions: ["What should we watch for?"] }),
+    });
+    expect(denied.status).toBe(403);
+
+    const caretakerCookie = await signIn("Caretaker", "Nila");
+    const saved = await fetch(`${baseUrl}/brief/questions`, {
+      method: "PUT",
+      headers: { Cookie: caretakerCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
+      body: JSON.stringify({ questions: ["What should we watch for?", "When should we call?"] }),
+    });
+    expect(saved.status).toBe(200);
+    const readBack = await fetch(`${baseUrl}/brief`, { headers: { Cookie: familyCookie } });
+    expect((await readBack.json()).questions).toEqual(["What should we watch for?", "When should we call?"]);
+  });
+
   it("deduplicates dose reminders and creates the escalation follow-ups using a fake clock", async () => {
     const scheduledAt = new Date(Date.now() + 10 * 60_000).toISOString();
     const doseId = Number(db.prepare("INSERT INTO dose_events(circle_id, medication_id, scheduled_at) VALUES (?, ?, ?)").run(circleId, medicationId, scheduledAt).lastInsertRowid);
@@ -142,6 +175,6 @@ describe("Dhaaga core flows", () => {
     expect(approved.status).toBe(200);
     expect(db.prepare("SELECT status FROM proposals WHERE id = ?").get(pending.id)).toMatchObject({ status: "approved" });
     expect(db.prepare("SELECT COUNT(*) AS count FROM appointments WHERE circle_id = ? AND doctor = 'Dr. Shah'").get(circleId)).toMatchObject({ count: 1 });
-    expect(db.prepare("SELECT COUNT(*) AS count FROM audit_log WHERE circle_id = ?").get(circleId)).toMatchObject({ count: 2 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM audit_log WHERE circle_id = ?").get(circleId)).toMatchObject({ count: 3 });
   });
 });

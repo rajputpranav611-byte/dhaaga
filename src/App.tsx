@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Appointment, type Dose, type Medication, type Proposal, type Role, type Snapshot } from "./api";
 
-type View = "Today" | "Medicines" | "Appointments" | "Circle" | "Letters";
+type View = "Today" | "Medicines" | "Appointments" | "Brief" | "Circle" | "Letters";
+const viewFromPath = (path: string): View => path === "/brief" ? "Brief" : path === "/outbox" ? "Letters" : "Today";
 const roles: Role[] = ["Elder", "Caretaker", "Family"];
 const demoCodes: Record<Role, string> = { Elder: "111111", Caretaker: "222222", Family: "333333" };
 const demoEnabled = import.meta.env.DEV || import.meta.env.VITE_DEMO_MODE === "true";
 type Language = "en" | "hi" | "gu";
 const languageCopy: Record<Language, Record<string, string>> = {
-  en: { Today: "Today", Medicines: "Medicines", Appointments: "Appointments", Circle: "Circle", Letters: "Letters", greeting: "Good morning", subtitle: "A new day to take things one bead at a time.", health: "YOUR HEALTH, IN A THREAD", rhythm: "Today’s rhythm", next: "Next up", take: "I took it", checkin: "How are you feeling?", coming: "Coming together", elderMode: "Elder mode", exitElder: "Exit elder mode", language: "LANGUAGE" },
-  hi: { Today: "आज", Medicines: "दवाइयाँ", Appointments: "डॉक्टर से मिलना", Circle: "अपने लोग", Letters: "चिट्ठियाँ", greeting: "सुप्रभात", subtitle: "आज का दिन, एक-एक धागे के मोती के साथ।", health: "आपकी सेहत का धागा", rhythm: "आज की लय", next: "अगली दवा", take: "मैंने ले ली", checkin: "आज आप कैसा महसूस कर रहे हैं?", coming: "आने वाली मुलाक़ात", elderMode: "आसान मोड", exitElder: "आसान मोड बंद करें", language: "भाषा" },
-  gu: { Today: "આજ", Medicines: "દવાઓ", Appointments: "ડૉક્ટરની મુલાકાત", Circle: "આપણા લોકો", Letters: "પત્રો", greeting: "સુપ્રભાત", subtitle: "આજનો દિવસ, એકેક મણકા સાથે.", health: "તમારી સંભાળનો દોરો", rhythm: "આજની લય", next: "આગળ", take: "મેં લઈ લીધી", checkin: "આજે તમને કેવું લાગે છે?", coming: "આગામી મુલાકાત", elderMode: "સરળ મોડ", exitElder: "સરળ મોડ બંધ કરો", language: "ભાષા" },
+  en: { Today: "Today", Medicines: "Medicines", Appointments: "Appointments", Brief: "Doctor brief", Circle: "Circle", Letters: "Letters", greeting: "Good morning", subtitle: "A new day to take things one bead at a time.", health: "YOUR HEALTH, IN A THREAD", rhythm: "Today’s rhythm", next: "Next up", take: "I took it", checkin: "How are you feeling?", coming: "Coming together", elderMode: "Elder mode", exitElder: "Exit elder mode", language: "LANGUAGE" },
+  hi: { Today: "आज", Medicines: "दवाइयाँ", Appointments: "डॉक्टर से मिलना", Brief: "डॉक्टर के लिए", Circle: "अपने लोग", Letters: "चिट्ठियाँ", greeting: "सुप्रभात", subtitle: "आज का दिन, एक-एक धागे के मोती के साथ।", health: "आपकी सेहत का धागा", rhythm: "आज की लय", next: "अगली दवा", take: "मैंने ले ली", checkin: "आज आप कैसा महसूस कर रहे हैं?", coming: "आने वाली मुलाक़ात", elderMode: "आसान मोड", exitElder: "आसान मोड बंद करें", language: "भाषा" },
+  gu: { Today: "આજ", Medicines: "દવાઓ", Appointments: "ડૉક્ટરની મુલાકાત", Brief: "ડૉક્ટર માટે", Circle: "આપણા લોકો", Letters: "પત્રો", greeting: "સુપ્રભાત", subtitle: "આજનો દિવસ, એકેક મણકા સાથે.", health: "તમારી સંભાળનો દોરો", rhythm: "આજની લય", next: "આગળ", take: "મેં લઈ લીધી", checkin: "આજે તમને કેવું લાગે છે?", coming: "આગામી મુલાકાત", elderMode: "સરળ મોડ", exitElder: "સરળ મોડ બંધ કરો", language: "ભાષા" },
 };
 
 function timeLabel(value: string) {
@@ -114,7 +115,7 @@ function Login({ onLogin, demo }: { onLogin: (circle: string, role: Role, code: 
 
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [view, setView] = useState<View>(() => window.location.pathname === "/outbox" ? "Letters" : "Today");
+  const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
   const [notice, setNotice] = useState("");
   const [elderMode, setElderMode] = useState(false);
   const [language, setLanguage] = useState<Language>("en");
@@ -126,19 +127,35 @@ function App() {
   const [timeShift, setTimeShift] = useState(0);
   const [caretakerEscalation, setCaretakerEscalation] = useState(20);
   const [familyEscalation, setFamilyEscalation] = useState(45);
+  const [briefData, setBriefData] = useState<Awaited<ReturnType<typeof api.doctorBrief>> | null>(null);
+  const [briefQuestions, setBriefQuestions] = useState("");
+  const [briefLoading, setBriefLoading] = useState(false);
 
   const refresh = useCallback(async () => { const data = await api.bootstrap(); setSnapshot(data); }, []);
   const navigate = useCallback((next: View) => {
     setView(next);
-    const path = next === "Letters" ? "/outbox" : "/";
+    const path = next === "Letters" ? "/outbox" : next === "Brief" ? "/brief" : "/";
     if (window.location.pathname !== path) window.history.pushState(null, "", path);
   }, []);
   useEffect(() => { void api.session().then((authenticated) => authenticated ? refresh() : undefined).catch(() => undefined); }, [refresh]);
   useEffect(() => {
-    const onPopState = () => setView(window.location.pathname === "/outbox" ? "Letters" : "Today");
+    const onPopState = () => setView(viewFromPath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+  useEffect(() => {
+    if (view !== "Brief" || !snapshot) return;
+    let active = true;
+    setBriefLoading(true);
+    api.doctorBrief().then((data) => {
+      if (!active) return;
+      setBriefData(data);
+      setBriefQuestions(data.questions.join("\n"));
+    }).catch((error: unknown) => {
+      if (active) setNotice(error instanceof Error ? error.message : "The doctor brief could not be loaded.");
+    }).finally(() => { if (active) setBriefLoading(false); });
+    return () => { active = false; };
+  }, [view, snapshot]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(""), 3800); return () => window.clearTimeout(timer); }, [notice]);
   useEffect(() => {
     if (!snapshot?.checkin) return;
@@ -154,7 +171,7 @@ function App() {
 
   const handleLogin = async (circle: string, role: Role, passcode: string, name: string, email: string) => {
     await api.login({ circle, passcode, role, name: name || role, email });
-    setView(window.location.pathname === "/outbox" ? "Letters" : "Today");
+    setView(viewFromPath(window.location.pathname));
     await refresh();
   };
   const act = async (task: () => Promise<unknown>, message: string) => {
@@ -185,13 +202,13 @@ function App() {
   const takenCount = snapshot.doses.filter((dose) => dose.status === "taken" || dose.status === "late").length;
   const adherence = snapshot.adherence.today;
   const canManage = role === "Elder" || role === "Caretaker";
-  const nav: View[] = ["Today", "Medicines", "Appointments", "Circle", "Letters"];
+  const nav: View[] = ["Today", "Medicines", "Appointments", "Brief", "Circle", "Letters"];
   const t = (key: string) => languageCopy[language][key] ?? key;
 
   return (
     <div className={elderMode ? "app-shell elder-mode" : "app-shell"}>
       <aside className="app-sidebar"><a className="wordmark" href="#"><span className="brand-mark">ध</span> dhaaga</a><div className="circle-badge"><span>CIRCLE / PRIVATE</span><strong>{snapshot.circle.name}</strong><small>{snapshot.circle.elder_name}’s care circle</small></div>
-        <nav aria-label="Main navigation">{nav.map((item, index) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => navigate(item)}><span className="nav-icon">{["◷", "◉", "▤", "♧", "✉"][index]}</span>{t(item)}{item === "Circle" && pending.length > 0 && <i className="nav-count">{pending.length}</i>}</button>)}</nav>
+        <nav aria-label="Main navigation">{nav.map((item, index) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => navigate(item)}><span className="nav-icon">{["◷", "◉", "▤", "▧", "♧", "✉"][index]}</span>{t(item)}{item === "Circle" && pending.length > 0 && <i className="nav-count">{pending.length}</i>}</button>)}</nav>
         <button className="sidebar-mode" onClick={() => setElderMode(!elderMode)}><span>◉</span> {elderMode ? t("exitElder") : t("elderMode")} <kbd>↗</kbd></button>
         <div className="sidebar-member"><div className="avatar">{greetingName(snapshot.member.name).slice(0, 1)}</div><span><b>{snapshot.member.name}</b><small>{role} · <button onClick={() => void api.logout().then(() => { setSnapshot(null); navigate("Today"); setElderMode(false); })}>Sign out</button></small></span></div>
       </aside>
@@ -210,6 +227,23 @@ function App() {
         </div>}
         {view === "Medicines" && <div className="page-content"><PageTitle eyebrow="THE DAILY THREAD" title="Medicines" note="A clear schedule, held together by your circle." action={canManage ? "Add a medicine" : undefined} onAction={() => { setPrescriptionDraft(null); setMedModal("new"); }} />{canManage && <label className="upload-button">✳ Build a draft from a prescription<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void readPrescription(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} /></label>}<section className="panel content-panel"><div className="medication-grid">{snapshot.medications.map((medication) => <MedicationCard key={medication.id} medication={medication} doses={snapshot.doses.filter((dose) => dose.medication_id === medication.id)} canManage={canManage} onEdit={() => setMedModal(medication)} onRemove={() => { if (window.confirm(`Remove ${medication.name} from the circle?`)) void act(() => api.removeMedication(medication.id), role === "Caretaker" ? "Removal suggestion sent for approval." : "Medicine removed from the thread."); }} />)}</div>{snapshot.medications.length === 0 && <p className="empty-note">No medicines added yet.</p>}</section></div>}
         {view === "Appointments" && <div className="page-content"><PageTitle eyebrow="MAKE ROOM FOR CARE" title="Appointments" note="The next visits, and the details that make them easier." action={role !== "Family" ? "Add appointment" : "Suggest an appointment"} onAction={() => setAppointmentModal("new")} /><section className="panel content-panel">{upcoming.length ? upcoming.map((appointment) => <AppointmentRow key={appointment.id} appointment={appointment} canManage={role !== "Family"} onEdit={() => setAppointmentModal(appointment)} onRemove={() => { if (window.confirm(`Remove the visit with ${appointment.doctor}?`)) void act(() => api.removeAppointment(appointment.id), role === "Elder" ? "Appointment removed from the circle." : "Removal suggestion sent for approval."); }} />) : <p className="empty-note">No upcoming appointments. Add one when you’re ready.</p>}</section></div>}
+        {view === "Brief" && <div className="page-content brief-page">
+          <div className="brief-header"><PageTitle eyebrow="A CLEAR PICTURE FOR YOUR VISIT" title="Doctor brief" note="A one-page summary from your circle’s records." /><button className="button button-dark brief-print" onClick={() => window.print()}>Print / Save as PDF</button></div>
+          {briefLoading || !briefData ? <p className="empty-note">Preparing the brief from your circle’s records…</p> : <>
+            <p className="brief-meta">Prepared for {briefData.elderName} · {new Date(briefData.generatedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: snapshot.circle.timezone })}</p>
+            <div className="brief-grid">
+              <section className="panel brief-section"><h2>Current medicines</h2>{briefData.medications.length ? briefData.medications.map((medication) => <div className="brief-row" key={medication.id}><strong>{medication.name}</strong><span>{medication.dose}</span><span>{medication.schedule.join(", ")} · {medication.days.join(", ")}</span>{medication.instructions && <small>{medication.instructions}</small>}</div>) : <p>No current medicines are listed in this circle.</p>}</section>
+              <section className="panel brief-section"><h2>Medicine adherence</h2><div className="brief-metrics">{([{ label: "Last 7 days", value: briefData.adherence.sevenDays }, { label: "Last 30 days", value: briefData.adherence.thirtyDays }]).map(({ label, value }) => <div key={label}><strong>{label}</strong><span>{value.percentage === null ? "No doses scheduled in this period." : `${value.percentage}% · ${value.completed} of ${value.total} doses`}</span></div>)}</div></section>
+              <section className="panel brief-section"><h2>Missed or late doses · last 30 days</h2>{briefData.missedOrLate.length ? <ul>{briefData.missedOrLate.map((dose) => <li key={dose.id}><strong>{dose.medication}</strong> ({dose.dose}) · {dose.status} · {new Date(dose.scheduled_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: snapshot.circle.timezone })}</li>)}</ul> : <p>No missed or late doses are recorded in the last 30 days.</p>}</section>
+              <section className="panel brief-section"><h2>Recent mood check-ins</h2>{briefData.moodTrend.length ? <ul>{briefData.moodTrend.map((entry) => <li key={entry.date}>{entry.date} · average mood {entry.average_mood}/5 · {entry.entries} {entry.entries === 1 ? "check-in" : "check-ins"}</li>)}</ul> : <p>No mood check-ins are recorded in the last 7 days.</p>}</section>
+              <section className="panel brief-section"><h2>Upcoming appointments</h2>{briefData.appointments.length ? <ul>{briefData.appointments.map((appointment) => <li key={appointment.id}><strong>{appointment.doctor}</strong>{appointment.specialty && ` · ${appointment.specialty}`} · {new Date(appointment.starts_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: snapshot.circle.timezone })}{appointment.place && ` · ${appointment.place}`}</li>)}</ul> : <p>No upcoming appointments are listed in this circle.</p>}</section>
+              <section className="panel brief-section brief-questions"><h2>Questions to ask the doctor</h2>{canManage ? <><label htmlFor="brief-questions">One question per line (up to 10).</label><textarea id="brief-questions" rows={4} maxLength={2010} value={briefQuestions} onChange={(event) => setBriefQuestions(event.target.value)} placeholder="Write questions you would like to discuss." /><button className="button button-outline" disabled={briefQuestions.split(/\r?\n/).filter((line) => line.trim()).length > 10} onClick={() => {
+                const questions = briefQuestions.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+                void act(async () => { const result = await api.saveBriefQuestions(questions); setBriefQuestions(result.questions.join("\n")); return result; }, "Doctor questions saved.");
+              }}>Save questions</button></> : briefData.questions.length ? <ul>{briefData.questions.map((question, index) => <li key={`${index}-${question}`}>{question}</li>)}</ul> : <p>No questions have been added for the visit yet.</p>}</section>
+            </div>
+          </>}
+        </div>}
         {view === "Circle" && <div className="page-content"><PageTitle eyebrow="PEOPLE WHO SHOW UP" title="Your circle" note="Everyone can help. Your care stays yours." /><section className="panel circle-panel"><div className="circle-member-row"><div className="avatar elder-avatar">{snapshot.circle.elder_name.slice(0, 1)}</div><div><strong>{snapshot.circle.elder_name}</strong><span>At the centre of this circle</span></div><span className="status-chip elder-chip">ELDER</span></div><div className="circle-member-row"><div className="avatar">C</div><div><strong>Trusted caretakers &amp; family</strong><span>Share the daily details and gentle reminders.</span></div><span className="status-chip circle-chip">CIRCLE TASK</span></div><div className="consent-setting"><div><strong>Direct edits by caretakers</strong><p>When off, changes wait for the elder’s approval.</p></div><span className={`toggle ${snapshot.circle.caretaker_direct_edit ? "toggle-on" : ""} ${role === "Elder" ? "" : "toggle-disabled"}`} role="switch" aria-label="Allow caretakers to make direct medicine changes" aria-checked={Boolean(snapshot.circle.caretaker_direct_edit)} aria-disabled={role !== "Elder"} tabIndex={0} onClick={() => role === "Elder" ? void act(() => api.updateCircle({ caretaker_direct_edit: !snapshot.circle.caretaker_direct_edit }), "Circle permissions updated.") : setNotice("Only the elder can change this circle setting.")} onKeyDown={(event) => { if (event.key === "Enter" && role === "Elder") void act(() => api.updateCircle({ caretaker_direct_edit: !snapshot.circle.caretaker_direct_edit }), "Circle permissions updated."); }} /></div><div className="escalation-setting"><div><strong>When the circle checks in</strong><p>A gentle caretaker note, then a family note if the dose is still unconfirmed.</p></div><label>Caretaker after<select disabled={role !== "Elder"} value={caretakerEscalation} onChange={(event) => setCaretakerEscalation(Number(event.target.value))}>{[10, 15, 20, 30, 45, 60].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}</select></label><label>Family after<select disabled={role !== "Elder"} value={familyEscalation} onChange={(event) => setFamilyEscalation(Number(event.target.value))}>{[30, 45, 60, 90, 120].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}</select></label>{role === "Elder" && <button className="button button-outline" onClick={() => void act(() => api.updateCircle({ escalation_caretaker_minutes: caretakerEscalation, escalation_family_minutes: familyEscalation }), "Circle reminders updated.")}>Save reminder timing</button>}</div></section><section className="panel content-panel"><div className="panel-heading"><div><span className="eyebrow">ELDER CONSENT</span><h2>Changes, in the open</h2></div><span className="status-chip elder-chip">ELDER TASK</span></div>{pending.length ? pending.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} canDecide={role === "Elder"} onDecision={(decision) => void act(() => api.decide(proposal.id, decision), decision === "approved" ? "Your circle has been updated." : "Suggestion set aside.")} />) : <p className="empty-note">No suggestions waiting. This is your care, and your call.</p>}</section><section className="panel content-panel"><div className="panel-heading"><div><span className="eyebrow">THE LITTLE THINGS THAT CHANGED</span><h2>Circle notes</h2></div></div>{snapshot.audit.map((entry) => <div className="audit-row" key={entry.id}><span className="audit-dot" /><div><strong>{entry.action}</strong><p>{entry.detail}</p></div><time>{new Date(entry.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</time></div>)}</section></div>}
         {view === "Letters" && <div className="page-content"><PageTitle eyebrow="A NOTE TO YOUR PEOPLE" title="Letters" note="A gentle weekly picture of how the week has been." /><section className="panel letter-panel"><div className="letter-stamp">✳</div><span className="eyebrow">SUNDAY LETTER · IN THE MAKING</span><h2>Small things, held in common.</h2><p>Your weekly letter will bring together the week’s medicines, appointments, and check-ins — just enough to keep your people close.</p><div className="letter-signoff">With care,<br /><em>Your Dhaaga circle</em></div><span className="status-chip circle-chip">CIRCLE TASK</span></section>{role !== "Family" && <section className="panel content-panel outbox-panel"><div className="panel-heading"><div><span className="eyebrow">EMAILS, AS THEY WOULD ARRIVE</span><h2>Circle outbox</h2></div><span className="status-chip circle-chip">{snapshot.outbox.length} MESSAGES</span></div>{snapshot.outbox.length ? snapshot.outbox.map((mail) => <article className="outbox-message" key={mail.id}><div><span className="eyebrow">{mail.kind.replace(/-/g, " ").toUpperCase()} · {mail.to_email}</span><strong>{mail.subject}</strong><time>{mail.sent_at ? `Sent ${new Date(mail.sent_at).toLocaleString("en-IN")}` : "Saved in outbox"}</time></div><p>{mail.body}</p></article>) : <p className="empty-note">No messages just yet. Gentle reminders will appear here when the scheduler has something to share.</p>}</section>}</div>}
       </main>

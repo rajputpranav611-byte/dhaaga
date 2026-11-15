@@ -10,7 +10,7 @@ import { db } from "./db";
 import { clearSession, loginLocked, parseSessionCookie, recordLoginFailure, requireAuth, requireMutationHeader, requireRoles, setSession, verifyPasscode, type AuthenticatedRequest } from "./security";
 import { runSchedulerTick, setDemoClockOffset, startScheduler } from "./scheduler";
 import { findInteractionWarnings, transitionDose } from "./domain";
-import { appointmentSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, proposalDecisionSchema } from "./schemas";
+import { appointmentSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, proposalDecisionSchema } from "./schemas";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -133,6 +133,72 @@ app.get("/api/bootstrap", requireAuth, (req: AuthenticatedRequest, res) => {
     .get(auth.circleId, DateTime.now().setZone(circle.timezone).toFormat("yyyy-LL-dd")) ?? null;
   const outbox = auth.role === "Family" ? [] : db.prepare("SELECT id, kind, to_email, subject, body, sent_at FROM outbox WHERE circle_id = ? ORDER BY id DESC LIMIT 100").all(auth.circleId);
   res.json({ circle, member: { name: auth.name, role: auth.role }, medications, doses, appointments, proposals, audit: auditRows, checkin, outbox, adherence });
+});
+
+app.get("/api/brief", requireAuth, (req: AuthenticatedRequest, res) => {
+  const auth = req.auth!;
+  const circle = db.prepare("SELECT timezone FROM circles WHERE id = ?").get(auth.circleId) as { timezone: string };
+  const now = DateTime.now().setZone(circle.timezone);
+  const today = now.toFormat("yyyy-LL-dd");
+  const range = (days: number) => ({
+    start: now.startOf("day").minus({ days: days - 1 }).toUTC().toISO()!,
+    end: now.endOf("day").toUTC().toISO()!,
+  });
+  const adherenceFor = (days: number) => {
+    const period = range(days);
+    const result = db.prepare(`
+      SELECT COUNT(*) AS total,
+        SUM(CASE WHEN status IN ('taken','late') THEN 1 ELSE 0 END) AS completed
+      FROM dose_events WHERE circle_id = ? AND scheduled_at BETWEEN ? AND ?
+    `).get(auth.circleId, period.start, period.end) as { total: number; completed: number | null };
+    return {
+      percentage: result.total ? Math.round((Number(result.completed ?? 0) / result.total) * 100) : null,
+      completed: Number(result.completed ?? 0),
+      total: result.total,
+    };
+  };
+  const medications = (db.prepare(`
+    SELECT id, name, dose, instructions, times AS schedule, days
+    FROM medications WHERE circle_id = ? AND active = 1 ORDER BY name
+  `).all(auth.circleId) as { id: number; name: string; dose: string; instructions: string; schedule: string; days: string }[])
+    .map((medication) => ({ ...medication, schedule: JSON.parse(medication.schedule) as string[], days: JSON.parse(medication.days) as string[] }));
+  const missedOrLate = db.prepare(`
+    SELECT d.id, m.name AS medication, m.dose, d.scheduled_at, d.status
+    FROM dose_events d JOIN medications m ON m.id = d.medication_id
+    WHERE d.circle_id = ? AND d.status IN ('missed','late') AND d.scheduled_at >= ? AND d.scheduled_at <= ?
+    ORDER BY d.scheduled_at DESC LIMIT 50
+  `).all(auth.circleId, range(30).start, range(30).end);
+  const moodTrend = db.prepare(`
+    SELECT date, ROUND(AVG(mood), 1) AS average_mood, COUNT(*) AS entries
+    FROM checkins WHERE circle_id = ? AND date BETWEEN ? AND ?
+    GROUP BY date ORDER BY date
+  `).all(auth.circleId, now.minus({ days: 6 }).toFormat("yyyy-LL-dd"), today);
+  const appointments = db.prepare(`
+    SELECT id, doctor, specialty, place, notes, starts_at
+    FROM appointments WHERE circle_id = ? AND starts_at >= ? ORDER BY starts_at
+  `).all(auth.circleId, now.toUTC().toISO());
+  const questionsRow = db.prepare("SELECT questions FROM brief_questions WHERE circle_id = ?").get(auth.circleId) as { questions: string } | undefined;
+  return res.json({
+    elderName: (db.prepare("SELECT elder_name FROM circles WHERE id = ?").get(auth.circleId) as { elder_name: string }).elder_name,
+    generatedAt: now.toISO(),
+    medications,
+    adherence: { sevenDays: adherenceFor(7), thirtyDays: adherenceFor(30) },
+    missedOrLate,
+    moodTrend,
+    appointments,
+    questions: questionsRow ? JSON.parse(questionsRow.questions) as string[] : [],
+  });
+});
+
+app.put("/api/brief/questions", requireAuth, requireRoles("Elder", "Caretaker"), (req: AuthenticatedRequest, res) => {
+  const parsed = briefQuestionsSchema.safeParse(req.body);
+  if (!parsed.success) return invalid(res, parsed.error);
+  db.prepare(`
+    INSERT INTO brief_questions(circle_id, questions, updated_by, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(circle_id) DO UPDATE SET questions = excluded.questions, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+  `).run(req.auth!.circleId, JSON.stringify(parsed.data.questions), req.auth!.memberId, new Date().toISOString());
+  audit(req.auth!, "Updated doctor brief questions", `${req.auth!.name} updated questions for a doctor visit.`);
+  return res.json({ questions: parsed.data.questions });
 });
 
 app.patch("/api/circle", requireAuth, requireRoles("Elder"), (req: AuthenticatedRequest, res) => {

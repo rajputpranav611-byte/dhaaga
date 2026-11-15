@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS checkins (
   date TEXT NOT NULL,
   UNIQUE(circle_id, member_id, date)
 );
+CREATE TABLE IF NOT EXISTS brief_questions (
+  circle_id INTEGER PRIMARY KEY REFERENCES circles(id) ON DELETE CASCADE,
+  questions TEXT NOT NULL DEFAULT '[]',
+  updated_by INTEGER REFERENCES members(id),
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS outbox (
   id INTEGER PRIMARY KEY,
   circle_id INTEGER REFERENCES circles(id),

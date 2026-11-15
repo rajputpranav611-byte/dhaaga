@@ -25,3 +25,6 @@ export const appointmentSchema = z.object({
 export const doseStatusSchema = z.object({ status: z.enum(["taken", "skipped"]) });
 export const proposalDecisionSchema = z.object({ decision: z.enum(["approved", "declined"]) });
 export const checkinSchema = z.object({ mood: z.number().int().min(1).max(5), note: z.string().trim().max(500) });
+export const briefQuestionsSchema = z.object({
+  questions: z.array(z.string().trim().min(1).max(200)).max(10),
+});

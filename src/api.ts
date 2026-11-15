@@ -39,6 +39,20 @@ export interface Proposal {
   status: string;
 }
 
+export interface DoctorBrief {
+  elderName: string;
+  generatedAt: string;
+  medications: Medication[];
+  adherence: {
+    sevenDays: { percentage: number | null; completed: number; total: number };
+    thirtyDays: { percentage: number | null; completed: number; total: number };
+  };
+  missedOrLate: { id: number; medication: string; dose: string; scheduled_at: string; status: "missed" | "late" }[];
+  moodTrend: { date: string; average_mood: number; entries: number }[];
+  appointments: Appointment[];
+  questions: string[];
+}
+
 export interface Snapshot {
   circle: { name: string; elder_name: string; timezone: string; caretaker_direct_edit: number; escalation_caretaker_minutes: number; escalation_family_minutes: number };
   member: { name: string; role: Role };
@@ -70,6 +84,8 @@ export const api = {
     request<{ member: Snapshot["member"] }>("/login", "POST", body),
   logout: () => request("/logout", "POST", {}),
   bootstrap: () => request<Snapshot>("/bootstrap"),
+  doctorBrief: () => request<DoctorBrief>("/brief"),
+  saveBriefQuestions: (questions: string[]) => request<{ questions: string[] }>("/brief/questions", "PUT", { questions }),
   setDose: (id: number, status: "taken" | "skipped") => request(`/doses/${id}`, "PATCH", { status }),
   addMedication: (body: Omit<Medication, "id">) => request<{ proposal?: boolean }>("/medications", "POST", body),
   updateMedication: (id: number, body: Omit<Medication, "id">) => request(`/medications/${id}`, "PATCH", body),
