@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Appointment, type Dose, type Medication, type Proposal, type Role, type Snapshot, type WeeklyLetterPreview, type WeeklyLetterSendResult } from "./api";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { api, type Appointment, type AskDhaagaProposalInput, type AskDhaagaResult, type Dose, type InteractionWarning, type Medication, type Proposal, type Role, type Snapshot, type WeeklyLetterPreview, type WeeklyLetterSendResult } from "./api";
 
 type View = "Today" | "Medicines" | "Appointments" | "Brief" | "Circle" | "Letters";
 const viewFromPath = (path: string): View => path === "/brief" ? "Brief" : path === "/outbox" ? "Letters" : "Today";
@@ -242,6 +242,7 @@ function App() {
       </aside>
       <main className="dashboard">
         <header className="dashboard-top"><span className="breadcrumb">{t(view).toUpperCase()} <i>/</i> TULSI CIRCLE</span>{elderMode && <label className="language-picker"><span>{t("language")}</span><select value={language} onChange={(event) => setLanguage(event.target.value as Language)} aria-label="Choose language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="gu">ગુજરાતી</option></select></label>}<button className="circle-presence"><i /> Circle is in step <span>↗</span></button></header>
+        <AskDhaagaPanel role={role} onProposed={refresh} />
         {view === "Today" && <div className="page-content">
           <div className="dashboard-intro"><div><p className="eyebrow">{new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toUpperCase()} <span>✳</span></p><h1>{t("greeting")}, {greetingName(snapshot.circle.elder_name)}.</h1><p className="intro-note">{t("subtitle")}</p></div><div className="day-stamp"><span>{t("Today").toUpperCase()}</span><b>{new Intl.DateTimeFormat("en-IN", { day: "2-digit" }).format(new Date())}</b><small>{new Intl.DateTimeFormat("en-IN", { month: "short" }).format(new Date())}</small></div></div>
           {pending.length > 0 && role === "Elder" && <section className="approval-card"><div className="approval-icon">✳</div><div><span className="eyebrow">ELDER TASK · YOUR CHOICE</span><h2>{pending.length === 1 ? "A small change to consider." : `${pending.length} changes are waiting for you.`}</h2><p>{pending[0].proposed_by} suggested {pending[0].action === "create" ? `a new ${pending[0].entity}` : `an update to ${pending[0].entity}`}. Nothing changes until you say so.</p></div><button className="button button-dark" onClick={() => navigate("Circle")}>Take a look <span>↗</span></button></section>}
@@ -280,6 +281,104 @@ function App() {
       {appointmentModal && <AppointmentModal initial={appointmentModal === "new" ? undefined : appointmentModal} onClose={() => setAppointmentModal(null)} onSubmit={(value) => void act(() => appointmentModal === "new" ? api.addAppointment(value) : api.updateAppointment(appointmentModal.id, value), role === "Family" || role === "Caretaker" ? "Appointment suggestion sent for approval." : appointmentModal === "new" ? "Appointment added to the circle." : "Appointment updated.")} />}
     </div>
   );
+}
+
+function AskDhaagaPanel({ role, onProposed }: { role: Role; onProposed: () => Promise<void> }) {
+  const [command, setCommand] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<AskDhaagaResult | null>(null);
+  const [draftEntity, setDraftEntity] = useState<"medicine" | "appointment" | "unknown">("unknown");
+  const [medicine, setMedicine] = useState<Omit<Medication, "id">>({ name: "", dose: "", instructions: "", schedule: [], days: [] });
+  const [appointment, setAppointment] = useState<Omit<Appointment, "id">>({ doctor: "", specialty: "", place: "", notes: "", starts_at: "" });
+
+  const parseCommand = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      const parsed = await api.askDhaaga(command);
+      setResult(parsed);
+      if (parsed.status === "needs-details") {
+        setDraftEntity(parsed.intent);
+        setMedicine(parsed.medicine);
+        setAppointment(parsed.appointment);
+      } else {
+        setCommand("");
+        await onProposed();
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The command could not be understood.");
+    } finally { setBusy(false); }
+  };
+
+  const saveDraftAsProposal = async (event: FormEvent) => {
+    event.preventDefault();
+    if (draftEntity === "unknown") {
+      setError("Choose whether this is a medicine or an appointment suggestion.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const input: AskDhaagaProposalInput = draftEntity === "medicine"
+        ? { entity: "medicine", payload: medicine }
+        : { entity: "appointment", payload: appointment };
+      setResult(await api.submitAskDhaagaProposal(input));
+      setCommand("");
+      await onProposed();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The suggestion could not be saved.");
+    } finally { setBusy(false); }
+  };
+
+  const warnings: InteractionWarning[] = result?.warnings ?? [];
+  return <section className="ask-dhaaga" aria-label="Ask Dhaaga">
+    <form className="ask-command" onSubmit={(event) => void parseCommand(event)}>
+      <label htmlFor="ask-dhaaga-command"><span className="eyebrow">ASK DHAAGA · A SUGGESTION, NEVER A CHANGE</span><input id="ask-dhaaga-command" value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Ask Dhaaga: add Papa’s evening BP tablet at 8pm" maxLength={500} /></label>
+      <button className="button button-dark" disabled={busy || command.trim().length < 3}>{busy ? "Listening…" : "Ask Dhaaga"} <span>↗</span></button>
+    </form>
+    {result?.status === "proposal" && <div className="ask-result" role="status" aria-live="polite">
+      <span className="status-chip approval-chip">NEEDS ELDER’S APPROVAL</span>
+      <strong>{result.entity === "medicine" ? `Medicine suggestion: ${result.payload.name}` : `Appointment suggestion: ${result.payload.doctor}`}</strong>
+      <p>{result.entity === "medicine" ? `${result.payload.dose} · ${result.payload.schedule.join(", ")} · ${result.payload.days.join(", ")}` : `${result.payload.starts_at ? new Date(result.payload.starts_at).toLocaleString() : "Date and time to be confirmed"}${result.payload.place ? ` · ${result.payload.place}` : ""}`}</p>
+      {warnings.length > 0 && <InteractionNotes warnings={warnings} />}
+      <small>Nothing is added to the care plan until the Elder approves it in Circle.</small>
+    </div>}
+    {result?.status === "needs-details" && <form className="ask-draft" onSubmit={(event) => void saveDraftAsProposal(event)}>
+      <div className="ask-draft-heading"><span className="eyebrow">CHECK THE DETAILS BEFORE SUGGESTING</span><span className="status-chip elder-chip">DRAFT · NOT YET PROPOSED</span></div>
+      {draftEntity === "unknown" && <label>What kind of suggestion?<select value="" onChange={(event) => setDraftEntity(event.target.value as "medicine" | "appointment")}><option value="">Choose one</option><option value="medicine" disabled={role === "Family"}>Medicine</option><option value="appointment">Appointment</option></select></label>}
+      {draftEntity === "medicine" && <div className="ask-draft-grid">
+        <label>Medicine name<input value={medicine.name} onChange={(event) => setMedicine({ ...medicine, name: event.target.value })} /></label>
+        <label>Dose<input value={medicine.dose} onChange={(event) => setMedicine({ ...medicine, dose: event.target.value })} placeholder="e.g. 1 tablet or 5 mg" /></label>
+        <label>Daily time(s), 12-hour format<input value={medicine.schedule.join(", ")} onChange={(event) => setMedicine({ ...medicine, schedule: event.target.value.split(",").map((time) => time.trim()).filter(Boolean) })} placeholder="e.g. 8:00 PM" /></label>
+        <label>Notes (optional)<input value={medicine.instructions} onChange={(event) => setMedicine({ ...medicine, instructions: event.target.value })} /></label>
+        <fieldset className="day-picker ask-days"><legend>Days</legend>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <label key={day}><input type="checkbox" checked={medicine.days.includes(day)} onChange={(event) => setMedicine({ ...medicine, days: event.target.checked ? [...medicine.days, day] : medicine.days.filter((item) => item !== day) })} />{day}</label>)}</fieldset>
+      </div>}
+      {draftEntity === "appointment" && <div className="ask-draft-grid">
+        <label>Doctor<input value={appointment.doctor} onChange={(event) => setAppointment({ ...appointment, doctor: event.target.value })} placeholder="e.g. Dr. Shah" /></label>
+        <label>Date and time<input type="datetime-local" value={dateTimeLocalValue(appointment.starts_at)} onChange={(event) => setAppointment({ ...appointment, starts_at: event.target.value ? new Date(event.target.value).toISOString() : "" })} /></label>
+        <label>Specialty<input value={appointment.specialty} onChange={(event) => setAppointment({ ...appointment, specialty: event.target.value })} /></label>
+        <label>Place<input value={appointment.place} onChange={(event) => setAppointment({ ...appointment, place: event.target.value })} /></label>
+        <label className="ask-notes">Notes (optional)<input value={appointment.notes} onChange={(event) => setAppointment({ ...appointment, notes: event.target.value })} /></label>
+      </div>}
+      {warnings.length > 0 && <InteractionNotes warnings={warnings} />}
+      <button className="button button-outline" disabled={busy || draftEntity === "unknown"}>{busy ? "Saving suggestion…" : "Send as a proposal"} <span>↗</span></button>
+    </form>}
+    {error && <p className="ask-error" role="alert">{error}</p>}
+  </section>;
+}
+
+function InteractionNotes({ warnings }: { warnings: InteractionWarning[] }) {
+  return <div className="ask-warnings"><span className="interaction-label">STARTER LIST · NOT EXHAUSTIVE</span>{warnings.map((warning) => <div className="interaction-warning" key={warning.title}><strong>{warning.title}</strong><span>{warning.note}</span></div>)}</div>;
+}
+
+function dateTimeLocalValue(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
 function PageTitle({ eyebrow, title, note, action, onAction }: { eyebrow: string; title: string; note: string; action?: string; onAction?: () => void }) {

@@ -66,6 +66,35 @@ export interface WeeklyLetterSendResult extends WeeklyLetterPreview {
   polished: boolean;
 }
 
+export interface InteractionWarning {
+  title: string;
+  note: string;
+}
+
+export type AskDhaagaProposal = {
+  status: "proposal";
+  proposalId: number;
+  warnings: InteractionWarning[];
+} & (
+  | { entity: "medicine"; payload: Omit<Medication, "id"> }
+  | { entity: "appointment"; payload: Omit<Appointment, "id"> }
+);
+
+export interface AskDhaagaNeedsDetails {
+  status: "needs-details";
+  intent: "medicine" | "appointment" | "unknown";
+  confident: boolean;
+  medicine: Omit<Medication, "id">;
+  appointment: Omit<Appointment, "id">;
+  warnings: InteractionWarning[];
+}
+
+export type AskDhaagaResult = AskDhaagaProposal | AskDhaagaNeedsDetails;
+
+export type AskDhaagaProposalInput =
+  | { entity: "medicine"; payload: Omit<Medication, "id"> }
+  | { entity: "appointment"; payload: Omit<Appointment, "id"> };
+
 export interface Snapshot {
   circle: { name: string; elder_name: string; timezone: string; caretaker_direct_edit: number; escalation_caretaker_minutes: number; escalation_family_minutes: number };
   member: { name: string; role: Role };
@@ -101,6 +130,8 @@ export const api = {
   saveBriefQuestions: (questions: string[]) => request<{ questions: string[] }>("/brief/questions", "PUT", { questions }),
   weeklyLetterPreview: () => request<WeeklyLetterPreview>("/letter/preview"),
   sendWeeklyLetterNow: () => request<WeeklyLetterSendResult>("/letter/send-now", "POST", {}),
+  askDhaaga: (command: string) => request<AskDhaagaResult>("/ask-dhaaga", "POST", { command }),
+  submitAskDhaagaProposal: (input: AskDhaagaProposalInput) => request<AskDhaagaProposal>("/ask-dhaaga/proposal", "POST", input),
   setDose: (id: number, status: "taken" | "skipped") => request(`/doses/${id}`, "PATCH", { status }),
   addMedication: (body: Omit<Medication, "id">) => request<{ proposal?: boolean }>("/medications", "POST", body),
   updateMedication: (id: number, body: Omit<Medication, "id">) => request(`/medications/${id}`, "PATCH", body),

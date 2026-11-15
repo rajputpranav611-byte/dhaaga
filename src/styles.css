@@ -164,6 +164,30 @@ h1, h2, h3, p { margin-top: 0; }
 .circle-presence { display: flex; align-items: center; gap: 7px; border: 0; background: transparent; font-size: 10px; }
 .circle-presence span { color: var(--terracotta); }
 .page-content { max-width: 1180px; margin: auto; padding: 35px 5% 56px; }
+.ask-dhaaga { max-width: 1180px; margin: 14px auto 0; padding: 13px 15px; border: 1.5px solid var(--ink); background: var(--paper-light); box-shadow: 3px 3px 0 #d9cdb7; }
+.ask-command { display: flex; align-items: flex-end; gap: 12px; }
+.ask-command label { min-width: 0; flex: 1; display: grid; gap: 6px; }
+.ask-command label > span { font-size: 8px; }
+.ask-command input, .ask-draft input, .ask-draft select { width: 100%; min-width: 0; height: 39px; padding: 0 10px; border: 1px solid #bfb5a3; border-radius: 0; background: var(--paper-light); color: var(--ink); font-size: 12px; }
+.ask-command .button { white-space: nowrap; }
+.ask-result, .ask-draft { margin-top: 13px; padding-top: 12px; display: grid; gap: 9px; border-top: 1px solid var(--line); }
+.ask-result { grid-template-columns: auto 1fr; align-items: center; }
+.ask-result > strong { font: 500 15px var(--serif); }
+.ask-result > p, .ask-result > small { grid-column: 2; margin: 0; color: #625d53; font-size: 10px; line-height: 1.5; }
+.ask-result > small { color: var(--sage); }
+.ask-result .ask-warnings, .ask-draft .ask-warnings { grid-column: 1 / -1; }
+.ask-draft-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ask-draft-heading .eyebrow { font-size: 8px; }
+.ask-draft-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ask-draft-grid > label, .ask-dhaaga > label { min-width: 0; display: grid; gap: 5px; color: #625d53; font-size: 10px; font-weight: 600; }
+.ask-draft-grid .ask-notes { grid-column: 1 / -1; }
+.ask-draft .ask-days { margin: 0; }
+.ask-draft .button { justify-self: start; }
+.ask-warnings { min-width: 0; }
+.ask-warnings .interaction-label { display: block; margin: 0 0 6px; }
+.ask-warnings .interaction-warning { margin-bottom: 5px; }
+.ask-error { margin: 9px 0 0; color: #9c3d25; font-size: 11px; }
+.ask-dhaaga button:disabled { opacity: .52; cursor: not-allowed; transform: none; }
 .dashboard-intro { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
 .dashboard-intro .eyebrow span { color: var(--terracotta); }
 .dashboard-intro h1, .page-title h1 { margin: 9px 0 6px; font: 500 36px/1.12 var(--serif); letter-spacing: -1.2px; }
@@ -397,6 +421,9 @@ h1, h2, h3, p { margin-top: 0; }
 .elder-mode .app-sidebar nav button, .elder-mode .button, .elder-mode .button-take, .elder-mode .role-picker button { min-height: 56px; }
 .elder-mode .thread-dose-list button { min-height: 56px; font-size: 14px; }
 .elder-mode .eyebrow, .elder-mode .dose-time, .elder-mode .dose-name small, .elder-mode .appointment-info span, .elder-mode .appointment-info small { font-size: 11px; }
+.elder-mode .ask-command input, .elder-mode .ask-draft input, .elder-mode .ask-draft select { min-height: 56px; font-size: 18px; }
+.elder-mode .ask-command .button, .elder-mode .ask-draft .button { min-height: 56px; font-size: 16px; }
+.elder-mode .ask-draft-grid > label { font-size: 13px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
@@ -431,6 +458,13 @@ h1, h2, h3, p { margin-top: 0; }
   .thread-legend span { font-size: 7px; }
 }
 @media (max-width: 760px) {
+  .ask-dhaaga { margin: 10px 12px 0; padding: 12px; }
+  .ask-command { align-items: stretch; flex-direction: column; }
+  .ask-command .button { width: 100%; }
+  .ask-result { grid-template-columns: 1fr; }
+  .ask-result > p, .ask-result > small { grid-column: 1; }
+  .ask-draft-grid { grid-template-columns: 1fr; }
+  .ask-draft-grid .ask-notes { grid-column: auto; }
   .landing-nav { height: 66px; margin: 0 5%; }
   .nav-note { display: none; }
   .landing-hero { padding: 45px 5% 45px; grid-template-columns: 1fr; gap: 35px; }

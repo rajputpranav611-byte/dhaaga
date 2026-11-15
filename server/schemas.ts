@@ -28,3 +28,28 @@ export const checkinSchema = z.object({ mood: z.number().int().min(1).max(5), no
 export const briefQuestionsSchema = z.object({
   questions: z.array(z.string().trim().min(1).max(200)).max(10),
 });
+export const askDhaagaCommandSchema = z.object({ command: z.string().trim().min(3).max(500) });
+export const askDhaagaMedicineDraftSchema = z.object({
+  name: z.string().trim().max(100).default(""),
+  dose: z.string().trim().max(100).default(""),
+  instructions: z.string().trim().max(500).default(""),
+  schedule: z.array(z.string().trim().max(20)).max(8).default([]),
+  days: z.array(z.enum(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])).max(7).default([]),
+});
+export const askDhaagaAppointmentDraftSchema = z.object({
+  doctor: z.string().trim().max(100).default(""),
+  specialty: z.string().trim().max(100).default(""),
+  place: z.string().trim().max(200).default(""),
+  notes: z.string().trim().max(1000).default(""),
+  starts_at: z.string().trim().max(40).default(""),
+});
+export const askDhaagaCandidateSchema = z.object({
+  intent: z.enum(["medicine", "appointment", "unknown"]),
+  confident: z.boolean(),
+  medicine: askDhaagaMedicineDraftSchema,
+  appointment: askDhaagaAppointmentDraftSchema,
+});
+export const askDhaagaProposalSchema = z.discriminatedUnion("entity", [
+  z.object({ entity: z.literal("medicine"), payload: medicationSchema }),
+  z.object({ entity: z.literal("appointment"), payload: appointmentSchema }),
+]);

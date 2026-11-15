@@ -13,6 +13,7 @@ let domain: typeof import("../server/domain");
 let schemas: typeof import("../server/schemas");
 let scheduler: typeof import("../server/scheduler");
 let weeklyLetter: typeof import("../server/weekly-letter");
+let askDhaaga: typeof import("../server/ask-dhaaga");
 let server: ReturnType<typeof import("node:http").createServer> | undefined;
 let baseUrl = "";
 let circleId = 0;
@@ -25,6 +26,7 @@ beforeAll(async () => {
   schemas = await import("../server/schemas");
   scheduler = await import("../server/scheduler");
   weeklyLetter = await import("../server/weekly-letter");
+  askDhaaga = await import("../server/ask-dhaaga");
   const { app } = await import("../server/index");
   const circle = db.prepare("INSERT INTO circles(slug, name, elder_name, timezone) VALUES (?, ?, ?, ?)")
     .run("test-circle", "Test Circle", "Asha", "Asia/Kolkata");
@@ -177,6 +179,49 @@ describe("Dhaaga core flows", () => {
       .get(`sunday-letter:${circleId}:2025-W01`)).toMatchObject({ count: 1 });
   });
 
+  it("parses Ask Dhaaga commands conservatively and validates structured results", async () => {
+    const incomplete = await askDhaaga.parseAskDhaagaCommand("add Papa's evening BP tablet at 8pm", "Asia/Kolkata");
+    expect(incomplete).toMatchObject({ intent: "medicine", confident: false, medicine: { name: "BP tablet", schedule: ["8:00 PM"], dose: "", days: [] } });
+    const complete = await askDhaaga.parseAskDhaagaCommand("add aspirin 1 tablet at 8pm every day", "Asia/Kolkata");
+    expect(complete).toMatchObject({ intent: "medicine", confident: true, medicine: { name: "aspirin", dose: "1 tablet", schedule: ["8:00 PM"], days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] } });
+    expect(schemas.askDhaagaCandidateSchema.safeParse(complete).success).toBe(true);
+    expect(schemas.askDhaagaCandidateSchema.safeParse({ ...complete, intent: "medicine", medicine: { ...complete.medicine, days: ["Funday"] } }).success).toBe(false);
+    const appointment = await askDhaaga.parseAskDhaagaCommand("book an appointment with Dr. Shah tomorrow at 3pm", "Asia/Kolkata");
+    expect(appointment).toMatchObject({ intent: "appointment", confident: true, appointment: { doctor: "Dr. Shah" } });
+  });
+
+  it("keeps Ask Dhaaga output as proposals and checks medicine interactions", async () => {
+    const caretakerCookie = await signIn("Caretaker", "Nila");
+    const incomplete = await fetch(`${baseUrl}/ask-dhaaga`, {
+      method: "POST",
+      headers: { Cookie: caretakerCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
+      body: JSON.stringify({ command: "add Papa's evening BP tablet at 8pm" }),
+    });
+    expect(await incomplete.json()).toMatchObject({ status: "needs-details", intent: "medicine" });
+
+    const existing = Number(db.prepare("INSERT INTO medications(circle_id, name, dose, times, days) VALUES (?, ?, ?, ?, ?)")
+      .run(circleId, "Warfarin", "5 mg", '["8:00 AM"]', '["Mon"]').lastInsertRowid);
+    const suggested = await fetch(`${baseUrl}/ask-dhaaga`, {
+      method: "POST",
+      headers: { Cookie: caretakerCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
+      body: JSON.stringify({ command: "add aspirin 1 tablet at 8pm every day" }),
+    });
+    const result = await suggested.json();
+    expect(suggested.status).toBe(202);
+    expect(result).toMatchObject({ status: "proposal", entity: "medicine", payload: { name: "aspirin" } });
+    expect(result.warnings[0].title).toContain("Warfarin");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM medications WHERE circle_id = ? AND lower(name) = 'aspirin'").get(circleId)).toMatchObject({ count: 0 });
+    db.prepare("DELETE FROM medications WHERE id = ?").run(existing);
+
+    const familyCookie = await signIn("Family", "Kabir");
+    const denied = await fetch(`${baseUrl}/ask-dhaaga/proposal`, {
+      method: "POST",
+      headers: { Cookie: familyCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
+      body: JSON.stringify({ entity: "medicine", payload: { name: "Aspirin", dose: "1 tablet", instructions: "", schedule: ["8:00 PM"], days: ["Mon"] } }),
+    });
+    expect(denied.status).toBe(403);
+  });
+
   it("deduplicates dose reminders and creates the escalation follow-ups using a fake clock", async () => {
     const scheduledAt = new Date(Date.now() + 10 * 60_000).toISOString();
     const doseId = Number(db.prepare("INSERT INTO dose_events(circle_id, medication_id, scheduled_at) VALUES (?, ?, ?)").run(circleId, medicationId, scheduledAt).lastInsertRowid);
@@ -222,6 +267,6 @@ describe("Dhaaga core flows", () => {
     expect(approved.status).toBe(200);
     expect(db.prepare("SELECT status FROM proposals WHERE id = ?").get(pending.id)).toMatchObject({ status: "approved" });
     expect(db.prepare("SELECT COUNT(*) AS count FROM appointments WHERE circle_id = ? AND doctor = 'Dr. Shah'").get(circleId)).toMatchObject({ count: 1 });
-    expect(db.prepare("SELECT COUNT(*) AS count FROM audit_log WHERE circle_id = ?").get(circleId)).toMatchObject({ count: 3 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM audit_log WHERE circle_id = ?").get(circleId)).toMatchObject({ count: 4 });
   });
 });

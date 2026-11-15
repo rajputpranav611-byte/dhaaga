@@ -10,8 +10,9 @@ import { db } from "./db";
 import { clearSession, loginLocked, parseSessionCookie, recordLoginFailure, requireAuth, requireMutationHeader, requireRoles, setSession, verifyPasscode, type AuthenticatedRequest } from "./security";
 import { deliverPendingEmails, runSchedulerTick, setDemoClockOffset, startScheduler } from "./scheduler";
 import { findInteractionWarnings, transitionDose } from "./domain";
-import { appointmentSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, proposalDecisionSchema } from "./schemas";
+import { appointmentSchema, askDhaagaCandidateSchema, askDhaagaCommandSchema, askDhaagaProposalSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, proposalDecisionSchema } from "./schemas";
 import { createWeeklyLetter, prepareWeeklyLetter } from "./weekly-letter";
+import { parseAskDhaagaCommand } from "./ask-dhaaga";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -37,10 +38,11 @@ function audit(auth: NonNullable<AuthenticatedRequest["auth"]>, action: string, 
     .run(auth.circleId, auth.memberId, auth.name, action, detail);
 }
 function addProposal(auth: NonNullable<AuthenticatedRequest["auth"]>, entity: string, action: string, payload: unknown) {
-  db.prepare("INSERT INTO proposals(circle_id, entity, action, payload, proposed_by) VALUES (?, ?, ?, ?, ?)")
+  const result = db.prepare("INSERT INTO proposals(circle_id, entity, action, payload, proposed_by) VALUES (?, ?, ?, ?, ?)")
     .run(auth.circleId, entity, action, JSON.stringify(payload), auth.memberId);
   const article = /^[aeiou]/i.test(entity) ? "an" : "a";
   audit(auth, "Suggested a change", `${auth.name} suggested ${action === "create" ? `a new ${entity}` : `${article} ${action} to ${entity}`}.`);
+  return Number(result.lastInsertRowid);
 }
 function syncDoseSchedule(circleId: number, medicationId: number, times: string[], days: string[]) {
   const timezone = (db.prepare("SELECT timezone FROM circles WHERE id = ?").get(circleId) as { timezone: string }).timezone;
@@ -242,6 +244,55 @@ app.post("/api/medications", requireAuth, requireRoles("Elder", "Caretaker"), (r
     return Number(result.lastInsertRowid);
   });
   return res.status(201).json({ id: create() });
+});
+
+app.post("/api/ask-dhaaga", requireAuth, async (req: AuthenticatedRequest, res) => {
+  const request = askDhaagaCommandSchema.safeParse(req.body);
+  if (!request.success) return invalid(res, request.error);
+  const auth = req.auth!;
+  const circle = db.prepare("SELECT timezone FROM circles WHERE id = ?").get(auth.circleId) as { timezone: string };
+  let candidate: z.infer<typeof askDhaagaCandidateSchema>;
+  try {
+    candidate = await parseAskDhaagaCommand(request.data.command, circle.timezone);
+  } catch {
+    return res.status(502).json({ error: "The command could not be safely parsed just now. Please try again or add the details by hand." });
+  }
+  if (candidate.intent === "medicine" && auth.role === "Family") {
+    return res.status(403).json({ error: "Family members can suggest appointments, but only the Elder or Caretaker can suggest medicines." });
+  }
+  if (candidate.intent === "medicine") {
+    const payload = medicationSchema.safeParse(candidate.medicine);
+    const warnings = findInteractionWarnings(candidate.medicine.name,
+      (db.prepare("SELECT name FROM medications WHERE circle_id = ? AND active = 1").all(auth.circleId) as { name: string }[]).map((item) => item.name));
+    if (candidate.confident && payload.success) {
+      const proposalId = addProposal(auth, "medicine", "create", payload.data);
+      return res.status(202).json({ status: "proposal", proposalId, entity: "medicine", payload: payload.data, warnings });
+    }
+    return res.json({ status: "needs-details", ...candidate, warnings });
+  }
+  if (candidate.intent === "appointment") {
+    const payload = appointmentSchema.safeParse(candidate.appointment);
+    if (candidate.confident && payload.success) {
+      const proposalId = addProposal(auth, "appointment", "create", payload.data);
+      return res.status(202).json({ status: "proposal", proposalId, entity: "appointment", payload: payload.data, warnings: [] });
+    }
+  }
+  return res.json({ status: "needs-details", ...candidate, warnings: [] });
+});
+
+app.post("/api/ask-dhaaga/proposal", requireAuth, (req: AuthenticatedRequest, res) => {
+  const parsed = askDhaagaProposalSchema.safeParse(req.body);
+  if (!parsed.success) return invalid(res, parsed.error);
+  const auth = req.auth!;
+  if (parsed.data.entity === "medicine" && auth.role === "Family") {
+    return res.status(403).json({ error: "Family members can suggest appointments, but only the Elder or Caretaker can suggest medicines." });
+  }
+  const warnings = parsed.data.entity === "medicine"
+    ? findInteractionWarnings(parsed.data.payload.name,
+      (db.prepare("SELECT name FROM medications WHERE circle_id = ? AND active = 1").all(auth.circleId) as { name: string }[]).map((item) => item.name))
+    : [];
+  const proposalId = addProposal(auth, parsed.data.entity, "create", parsed.data.payload);
+  return res.status(202).json({ status: "proposal", proposalId, ...parsed.data, warnings });
 });
 
 app.patch("/api/medications/:id", requireAuth, requireRoles("Elder", "Caretaker"), (req: AuthenticatedRequest, res) => {
