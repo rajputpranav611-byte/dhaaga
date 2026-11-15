@@ -95,6 +95,14 @@ export type AskDhaagaProposalInput =
   | { entity: "medicine"; payload: Omit<Medication, "id"> }
   | { entity: "appointment"; payload: Omit<Appointment, "id"> };
 
+export interface WeekBraidDay {
+  date: string;
+  label: string;
+  completed: number;
+  total: number;
+  percentage: number | null;
+}
+
 export interface Snapshot {
   circle: { name: string; elder_name: string; timezone: string; caretaker_direct_edit: number; escalation_caretaker_minutes: number; escalation_family_minutes: number };
   member: { name: string; role: Role };
@@ -106,6 +114,7 @@ export interface Snapshot {
   checkin: { mood: number; note: string } | null;
   outbox: { id: number; kind: string; to_email: string; subject: string; body: string; sent_at: string | null }[];
   adherence: { today: number; week: number; month: number };
+  weekBraid: WeekBraidDay[];
 }
 
 async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {

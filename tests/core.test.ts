@@ -14,6 +14,7 @@ let schemas: typeof import("../server/schemas");
 let scheduler: typeof import("../server/scheduler");
 let weeklyLetter: typeof import("../server/weekly-letter");
 let askDhaaga: typeof import("../server/ask-dhaaga");
+let weekBraid: typeof import("../server/week-braid");
 let server: ReturnType<typeof import("node:http").createServer> | undefined;
 let baseUrl = "";
 let circleId = 0;
@@ -27,6 +28,7 @@ beforeAll(async () => {
   scheduler = await import("../server/scheduler");
   weeklyLetter = await import("../server/weekly-letter");
   askDhaaga = await import("../server/ask-dhaaga");
+  weekBraid = await import("../server/week-braid");
   const { app } = await import("../server/index");
   const circle = db.prepare("INSERT INTO circles(slug, name, elder_name, timezone) VALUES (?, ?, ?, ?)")
     .run("test-circle", "Test Circle", "Asha", "Asia/Kolkata");
@@ -518,5 +520,25 @@ describe("Dhaaga core flows", () => {
     expect(invalid).toEqual({ body: template, polished: false });
     const valid = weeklyLetter.validatePolishedWeeklyLetter(template.replace("Hello family,", "Hello, dear family,"), data, template);
     expect(valid).toMatchObject({ polished: true });
+  });
+
+  it("builds seven timezone-aware braid strands from dose events", async () => {
+    const records = [
+      { scheduledAt: "2025-01-07T03:00:00.000Z", status: "taken" },
+      { scheduledAt: "2025-01-07T04:00:00.000Z", status: "missed" },
+      { scheduledAt: "2025-01-08T03:00:00.000Z", status: "pending" },
+    ];
+    const insert = db.prepare("INSERT INTO dose_events(circle_id, medication_id, scheduled_at, status) VALUES (?, ?, ?, ?)");
+    for (const record of records) insert.run(circleId, medicationId, record.scheduledAt, record.status);
+    const days = weekBraid.collectWeekBraid(circleId, new Date("2025-01-08T12:00:00.000Z"));
+    expect(days).toHaveLength(7);
+    expect(days[0].date).toBe("2025-01-02");
+    expect(days[6].date).toBe("2025-01-08");
+    expect(days[5]).toMatchObject({ completed: 1, total: 2, percentage: 50 });
+    expect(days[6]).toMatchObject({ completed: 0, total: 1, percentage: 0 });
+    const familyCookie = await signIn("Family", "Kabir");
+    const bootstrap = await fetch(`${baseUrl}/bootstrap`, { headers: { Cookie: familyCookie } });
+    expect((await bootstrap.json()).weekBraid).toHaveLength(7);
+    for (const record of records) db.prepare("DELETE FROM dose_events WHERE circle_id = ? AND scheduled_at = ?").run(circleId, record.scheduledAt);
   });
 });

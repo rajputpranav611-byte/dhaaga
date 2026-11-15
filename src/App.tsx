@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { api, type Appointment, type AskDhaagaProposalInput, type AskDhaagaResult, type Dose, type InteractionWarning, type Medication, type Proposal, type Role, type Snapshot, type WeeklyLetterPreview, type WeeklyLetterSendResult } from "./api";
+import { api, type Appointment, type AskDhaagaProposalInput, type AskDhaagaResult, type Dose, type InteractionWarning, type Medication, type Proposal, type Role, type Snapshot, type WeekBraidDay, type WeeklyLetterPreview, type WeeklyLetterSendResult } from "./api";
 
 type View = "Today" | "Medicines" | "Appointments" | "Brief" | "Circle" | "Letters";
 const viewFromPath = (path: string): View => path === "/brief" ? "Brief" : path === "/outbox" ? "Letters" : "Today";
@@ -58,6 +58,39 @@ function Thread({ doses, elderMode, language, onTake }: { doses: Dose[]; elderMo
       </div>
     </div>
   );
+}
+
+function WeekBraid({ days }: { days: WeekBraidDay[] }) {
+  const colors = ["braid-sage", "braid-gold", "braid-terracotta", "braid-ink", "braid-moss", "braid-ochre", "braid-clay"];
+  const description = days.map((day) => `${day.label}: ${day.percentage === null ? "no scheduled doses" : `${day.percentage}% adherence, ${day.completed} of ${day.total} doses`}`).join("; ");
+  const strands = days.map((day, index) => {
+    const adherence = day.percentage === null ? 0.5 : day.percentage / 100;
+    const amplitude = 3 + (1 - adherence) * 24;
+    const baseline = 28 + index * 19;
+    const points = Array.from({ length: 33 }, (_, step) => {
+      const x = 12 + step * 16.75;
+      const phase = step * (Math.PI / 4) + index * (Math.PI * 2 / 7);
+      const y = baseline + Math.sin(phase) * amplitude;
+      return `${step === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    }).join(" ");
+    return { day, color: colors[index], points };
+  });
+  return <section className="panel week-braid">
+    <div className="panel-heading"><div><span className="eyebrow">SEVEN DAYS, HELD TOGETHER</span><h2>The week braid</h2></div><span className="status-chip circle-chip">ONE STRAND PER DAY</span></div>
+    <figure className="week-braid-figure" role="img" aria-label={`Seven-day medication adherence braid. ${description}`}>
+      <svg viewBox="0 0 560 190" aria-hidden="true" focusable="false">
+        {strands.map(({ day, color, points }) => <path key={day.date} className={`week-braid-strand ${color}`} d={points} />)}
+      </svg>
+      <figcaption className="sr-only">{description}</figcaption>
+    </figure>
+    <div className="week-braid-days">{days.map((day, index) => <div className={`week-braid-day ${day.percentage !== null && day.percentage < 60 ? "braid-day-low" : ""}`} key={day.date}>
+      <span className={`week-braid-dot ${colors[index]}`} aria-hidden="true" />
+      <strong>{day.label}</strong>
+      <b>{day.percentage === null ? "—" : `${day.percentage}%`}</b>
+      <small>{day.total ? `${day.completed}/${day.total} doses` : "No doses"}</small>
+    </div>)}</div>
+    <p className="week-braid-note">More missed or pending beads loosen a strand. A day without scheduled doses is shown as “No doses.”</p>
+  </section>;
 }
 
 function Login({ onLogin, demo }: { onLogin: (circle: string, role: Role, code: string, name: string, email: string) => void; demo: boolean }) {
@@ -249,6 +282,7 @@ function App() {
           <div className="today-grid"><section className="panel thread-panel"><div className="panel-heading"><div><span className="eyebrow">{t("health")}</span><h2>{t("rhythm")}</h2></div><span className="status-chip circle-chip"><i /> CIRCLE TASK</span></div><Thread doses={snapshot.doses} elderMode={elderMode} language={language} onTake={(dose, status) => void act(() => api.setDose(dose.id, status), status === "taken" ? `${dose.medication} marked as taken.` : `${dose.medication} marked as skipped.`)} /><div className="thread-legend"><span><i className="legend-taken" /> Gathered</span><span><i className="legend-next" /> Coming up</span><span><i className="legend-missed" /> Missed / skipped</span><button onClick={() => { const speech = new SpeechSynthesisUtterance(`Today, ${takenCount} of ${snapshot.doses.length} medicines taken. ${nextDose ? `${nextDose.medication} is next at ${timeLabel(nextDose.scheduled_at)}.` : "You are all caught up."}`); speech.lang = language === "hi" ? "hi-IN" : language === "gu" ? "gu-IN" : "en-IN"; window.speechSynthesis?.speak(speech); }}>▤ Read aloud</button></div></section>
             <div className="right-rail"><section className="panel next-panel"><div className="panel-heading"><div><span className="eyebrow">ON THE HORIZON</span><h2>{t("next")}</h2></div><span className="sun-icon">☼</span></div>{nextDose ? <div className="next-card"><span className="next-time">{timeLabel(nextDose.scheduled_at)}</span><b>{nextDose.medication}</b><small>{nextDose.dose}</small><button onClick={() => void act(() => api.setDose(nextDose.id, "taken"), "Dose marked as taken.")} className="button button-outline">{elderMode ? t("take") : "Mark as taken"} <span>↗</span></button></div> : <p className="empty-note">All of today’s doses are accounted for. Take a breath.</p>}</section>
               <section className="panel adherence-panel"><div><span className="eyebrow">ADHERENCE · TODAY</span><strong>{adherence}<small>%</small></strong><p>{takenCount} of {snapshot.doses.length} beads gathered</p><div className="adherence-periods"><span>7 days <b>{snapshot.adherence.week}%</b></span><span>30 days <b>{snapshot.adherence.month}%</b></span></div></div><svg viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="34" /><circle className="progress-ring" cx="42" cy="42" r="34" style={{ strokeDasharray: `${(adherence / 100) * 214} 214` }} /></svg></section></div></div>
+          <WeekBraid days={snapshot.weekBraid} />
           <div className="lower-grid">          <section className="panel appointments-mini"><div className="panel-heading"><div><span className="eyebrow">A LITTLE PREPARATION</span><h2>Coming together</h2></div><button className="plain-link" onClick={() => navigate("Appointments")}>All appointments ↗</button></div>{upcoming.length ? upcoming.slice(0, 2).map((appointment) => <AppointmentRow key={appointment.id} appointment={appointment} />) : <p className="empty-note">No appointments on the calendar just yet.</p>}</section>
             <section className="panel checkin-panel"><div className="panel-heading"><div><span className="eyebrow">A MOMENT FOR YOU</span><h2>{t("checkin")}</h2></div><span>♡</span></div><div className="mood-faces" role="radiogroup" aria-label={t("checkin")}>{["low", "okay", "fine", "good", "bright"].map((label, index) => <button key={label} aria-label={`${index + 1} ${label}`} aria-checked={mood === index + 1} role="radio" className={mood === index + 1 ? "mood-selected" : ""} onClick={() => setMood(index + 1)}><MoodFace mood={index + 1} /><span>{label}</span></button>)}</div>{mood > 0 && <div className="checkin-note"><input value={moodNote} onChange={(event) => setMoodNote(event.target.value)} placeholder="Anything you’d like us to know? (optional)" /><button onClick={() => void act(() => api.checkin(mood, moodNote), "Check-in shared with your circle.")}>Share ↗</button></div>}</section></div>
           <div className="dashboard-footer-note"><span>✳</span> Care is not a checklist. It’s people, showing up for each other.</div>

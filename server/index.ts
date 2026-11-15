@@ -13,6 +13,7 @@ import { findInteractionWarnings, transitionDose } from "./domain";
 import { appointmentSchema, askDhaagaCandidateSchema, askDhaagaCommandSchema, askDhaagaProposalSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, prescriptionDraftSchema, proposalDecisionSchema } from "./schemas";
 import { createWeeklyLetter, prepareWeeklyLetter } from "./weekly-letter";
 import { parseAskDhaagaCommand } from "./ask-dhaaga";
+import { collectWeekBraid } from "./week-braid";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -135,7 +136,7 @@ app.get("/api/bootstrap", requireAuth, (req: AuthenticatedRequest, res) => {
   const checkin = db.prepare("SELECT mood, note FROM checkins WHERE circle_id = ? AND date = ? ORDER BY id DESC LIMIT 1")
     .get(auth.circleId, DateTime.now().setZone(circle.timezone).toFormat("yyyy-LL-dd")) ?? null;
   const outbox = auth.role === "Family" ? [] : db.prepare("SELECT id, kind, to_email, subject, body, sent_at FROM outbox WHERE circle_id = ? ORDER BY id DESC LIMIT 100").all(auth.circleId);
-  res.json({ circle, member: { name: auth.name, role: auth.role }, medications, doses, appointments, proposals, audit: auditRows, checkin, outbox, adherence });
+  res.json({ circle, member: { name: auth.name, role: auth.role }, medications, doses, appointments, proposals, audit: auditRows, checkin, outbox, adherence, weekBraid: collectWeekBraid(auth.circleId) });
 });
 
 app.get("/api/brief", requireAuth, (req: AuthenticatedRequest, res) => {
