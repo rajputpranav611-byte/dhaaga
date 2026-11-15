@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { db } from "./db";
+import { createWeeklyLetter } from "./weekly-letter";
 
 export type Clock = () => Date;
 export interface ReminderResult { created: number; sent: number; }
@@ -21,17 +22,20 @@ function makeOutbox(circleId: number, kind: string, to: string, subject: string,
   return false;
 }
 
-async function deliverPending() {
+export async function deliverPendingEmails(onlyIds?: number[]) {
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return 0;
-  const pending = db.prepare("SELECT id, to_email, subject, body FROM outbox WHERE sent_at IS NULL ORDER BY id LIMIT 20")
-    .all() as { id: number; to_email: string; subject: string; body: string }[];
+  if (!apiKey || onlyIds?.length === 0) return 0;
+  const pending = (onlyIds
+    ? db.prepare(`SELECT id, to_email, subject, body FROM outbox WHERE sent_at IS NULL AND id IN (${onlyIds.map(() => "?").join(",")}) ORDER BY id`)
+      .all(...onlyIds)
+    : db.prepare("SELECT id, to_email, subject, body FROM outbox WHERE sent_at IS NULL ORDER BY id LIMIT 20").all()) as
+      { id: number; to_email: string; subject: string; body: string }[];
   let sent = 0;
   for (const mail of pending) {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: process.env.EMAIL_FROM ?? "Dhaaga <care@example.com>", to: [mail.to_email], subject: mail.subject, html: `<p>${escapeHtml(mail.body).replace(/\n/g, "<br>")}</p>` }),
+      body: JSON.stringify({ from: process.env.EMAIL_FROM ?? "Dhaaga <care@example.com>", to: mail.to_email.split(",").map((address) => address.trim()), subject: mail.subject, html: `<p>${escapeHtml(mail.body).replace(/\n/g, "<br>")}</p>` }),
     });
     if (!response.ok) throw new Error(`Email delivery failed with status ${response.status}`);
     db.prepare("UPDATE outbox SET sent_at = ? WHERE id = ?").run(new Date().toISOString(), mail.id);
@@ -94,7 +98,15 @@ export async function runSchedulerTick(clock: Clock = demoClock): Promise<Remind
       if (makeOutbox(appointment.circle_id, "appointment", person.email, `A note before your visit with ${appointment.doctor}`, `Hello ${appointment.elder_name}, a gentle reminder that your appointment with ${appointment.doctor} is ${bucket === "2h" ? "in about two hours" : "tomorrow"}.`, `appointment:${appointment.id}:${bucket}:${person.email}`)) created++;
     }
   }
-  return { created, sent: await deliverPending() };
+  const circles = db.prepare("SELECT id, timezone FROM circles").all() as { id: number; timezone: string }[];
+  for (const circle of circles) {
+    const circleNow = DateTime.fromJSDate(now, { zone: "utc" }).setZone(circle.timezone);
+    if (circleNow.weekday === 7 && circleNow.hour >= 18) {
+      const letter = await createWeeklyLetter(circle.id, now);
+      if (letter.created) created++;
+    }
+  }
+  return { created, sent: await deliverPendingEmails() };
 }
 
 export function startScheduler() {

@@ -5,12 +5,14 @@ process.env.NODE_ENV = "test";
 process.env.DEMO_MODE = "true";
 process.env.SESSION_SECRET = "test-only-session-secret";
 process.env.RESEND_API_KEY = "";
+process.env.GEMINI_API_KEY = "";
 
 let db: (typeof import("../server/db"))["db"];
 let security: typeof import("../server/security");
 let domain: typeof import("../server/domain");
 let schemas: typeof import("../server/schemas");
 let scheduler: typeof import("../server/scheduler");
+let weeklyLetter: typeof import("../server/weekly-letter");
 let server: ReturnType<typeof import("node:http").createServer> | undefined;
 let baseUrl = "";
 let circleId = 0;
@@ -22,6 +24,7 @@ beforeAll(async () => {
   domain = await import("../server/domain");
   schemas = await import("../server/schemas");
   scheduler = await import("../server/scheduler");
+  weeklyLetter = await import("../server/weekly-letter");
   const { app } = await import("../server/index");
   const circle = db.prepare("INSERT INTO circles(slug, name, elder_name, timezone) VALUES (?, ?, ?, ?)")
     .run("test-circle", "Test Circle", "Asha", "Asia/Kolkata");
@@ -128,6 +131,50 @@ describe("Dhaaga core flows", () => {
     expect(saved.status).toBe(200);
     const readBack = await fetch(`${baseUrl}/brief`, { headers: { Cookie: familyCookie } });
     expect((await readBack.json()).questions).toEqual(["What should we watch for?", "When should we call?"]);
+  });
+
+  it("previews a deterministic weekly letter and restricts manual sending to Elder and Caretaker", async () => {
+    const familyCookie = await signIn("Family", "Kabir");
+    const preview = await fetch(`${baseUrl}/letter/preview`, { headers: { Cookie: familyCookie } });
+    expect(preview.status).toBe(200);
+    expect((await preview.json()).body).toContain("Medicine adherence this week:");
+
+    const denied = await fetch(`${baseUrl}/letter/send-now`, {
+      method: "POST",
+      headers: { Cookie: familyCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
+      body: "{}",
+    });
+    expect(denied.status).toBe(403);
+
+    const caretakerCookie = await signIn("Caretaker", "Nila");
+    const sent = await fetch(`${baseUrl}/letter/send-now`, {
+      method: "POST",
+      headers: { Cookie: caretakerCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
+      body: "{}",
+    });
+    expect(sent.status).toBe(200);
+    expect(await sent.json()).toMatchObject({ created: true, recipientCount: 1, sentAt: null });
+  });
+
+  it("deduplicates weekly letters by ISO week and rejects newly introduced number facts", async () => {
+    const fixedDate = new Date("2025-01-08T12:00:00.000Z");
+    const first = await weeklyLetter.createWeeklyLetter(circleId, fixedDate);
+    const second = await weeklyLetter.createWeeklyLetter(circleId, fixedDate);
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(first.data.weekKey).toBe("2025-W02");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM outbox WHERE dedupe_key = ?")
+      .get(`sunday-letter:${circleId}:2025-W02`)).toMatchObject({ count: 1 });
+    expect(weeklyLetter.containsOnlyProvidedNumbers("Adherence reached 100%.", "Adherence reached 80%.")).toBe(false);
+    expect(weeklyLetter.containsOnlyProvidedNumbers("Adherence reached 80%.", "Adherence reached 80%.")).toBe(true);
+  });
+
+  it("creates the weekly letter after 18:00 in the circle's timezone on Sunday", async () => {
+    const sundayEvening = new Date("2025-01-05T12:30:00.000Z");
+    const result = await scheduler.runSchedulerTick(() => sundayEvening);
+    expect(result.created).toBeGreaterThan(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM outbox WHERE dedupe_key = ?")
+      .get(`sunday-letter:${circleId}:2025-W01`)).toMatchObject({ count: 1 });
   });
 
   it("deduplicates dose reminders and creates the escalation follow-ups using a fake clock", async () => {

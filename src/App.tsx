@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Appointment, type Dose, type Medication, type Proposal, type Role, type Snapshot } from "./api";
+import { api, type Appointment, type Dose, type Medication, type Proposal, type Role, type Snapshot, type WeeklyLetterPreview, type WeeklyLetterSendResult } from "./api";
 
 type View = "Today" | "Medicines" | "Appointments" | "Brief" | "Circle" | "Letters";
 const viewFromPath = (path: string): View => path === "/brief" ? "Brief" : path === "/outbox" ? "Letters" : "Today";
@@ -130,6 +130,8 @@ function App() {
   const [briefData, setBriefData] = useState<Awaited<ReturnType<typeof api.doctorBrief>> | null>(null);
   const [briefQuestions, setBriefQuestions] = useState("");
   const [briefLoading, setBriefLoading] = useState(false);
+  const [letterPreview, setLetterPreview] = useState<WeeklyLetterPreview | null>(null);
+  const [letterBusy, setLetterBusy] = useState(false);
 
   const refresh = useCallback(async () => { const data = await api.bootstrap(); setSnapshot(data); }, []);
   const navigate = useCallback((next: View) => {
@@ -156,6 +158,13 @@ function App() {
     }).finally(() => { if (active) setBriefLoading(false); });
     return () => { active = false; };
   }, [view, snapshot]);
+  useEffect(() => {
+    if (view !== "Letters" || !snapshot) return;
+    let active = true;
+    api.weeklyLetterPreview().then((preview) => { if (active) setLetterPreview(preview); })
+      .catch((error: unknown) => { if (active) setNotice(error instanceof Error ? error.message : "The letter preview could not be loaded."); });
+    return () => { active = false; };
+  }, [view]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(""), 3800); return () => window.clearTimeout(timer); }, [notice]);
   useEffect(() => {
     if (!snapshot?.checkin) return;
@@ -176,6 +185,25 @@ function App() {
   };
   const act = async (task: () => Promise<unknown>, message: string) => {
     try { await task(); await refresh(); setNotice(message); } catch (error) { setNotice(error instanceof Error ? error.message : "Please try again."); }
+  };
+  const sendWeeklyLetterNow = async () => {
+    setLetterBusy(true);
+    try {
+      const result: WeeklyLetterSendResult = await api.sendWeeklyLetterNow();
+      await refresh();
+      setLetterPreview(result);
+      setNotice(result.recipientCount === 0
+        ? "No Family member has an email address yet."
+        : result.created
+          ? result.sentAt ? "The weekly letter was sent and saved in the circle outbox." : `The weekly letter is saved in the outbox for ${result.recipientCount} Family member${result.recipientCount === 1 ? "" : "s"}.`
+          : "This week’s letter was already sent or queued; it remains in the outbox.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The weekly letter could not be prepared.";
+      if (message.includes("saved in the outbox")) {
+        try { await refresh(); } catch { setNotice(`${message} The outbox could not refresh; revisit Letters to check it.`); return; }
+      }
+      setNotice(message);
+    } finally { setLetterBusy(false); }
   };
   const advanceClock = (minutes: number, message: string) => {
     setTimeShift((current) => current + minutes);
@@ -245,7 +273,7 @@ function App() {
           </>}
         </div>}
         {view === "Circle" && <div className="page-content"><PageTitle eyebrow="PEOPLE WHO SHOW UP" title="Your circle" note="Everyone can help. Your care stays yours." /><section className="panel circle-panel"><div className="circle-member-row"><div className="avatar elder-avatar">{snapshot.circle.elder_name.slice(0, 1)}</div><div><strong>{snapshot.circle.elder_name}</strong><span>At the centre of this circle</span></div><span className="status-chip elder-chip">ELDER</span></div><div className="circle-member-row"><div className="avatar">C</div><div><strong>Trusted caretakers &amp; family</strong><span>Share the daily details and gentle reminders.</span></div><span className="status-chip circle-chip">CIRCLE TASK</span></div><div className="consent-setting"><div><strong>Direct edits by caretakers</strong><p>When off, changes wait for the elder’s approval.</p></div><span className={`toggle ${snapshot.circle.caretaker_direct_edit ? "toggle-on" : ""} ${role === "Elder" ? "" : "toggle-disabled"}`} role="switch" aria-label="Allow caretakers to make direct medicine changes" aria-checked={Boolean(snapshot.circle.caretaker_direct_edit)} aria-disabled={role !== "Elder"} tabIndex={0} onClick={() => role === "Elder" ? void act(() => api.updateCircle({ caretaker_direct_edit: !snapshot.circle.caretaker_direct_edit }), "Circle permissions updated.") : setNotice("Only the elder can change this circle setting.")} onKeyDown={(event) => { if (event.key === "Enter" && role === "Elder") void act(() => api.updateCircle({ caretaker_direct_edit: !snapshot.circle.caretaker_direct_edit }), "Circle permissions updated."); }} /></div><div className="escalation-setting"><div><strong>When the circle checks in</strong><p>A gentle caretaker note, then a family note if the dose is still unconfirmed.</p></div><label>Caretaker after<select disabled={role !== "Elder"} value={caretakerEscalation} onChange={(event) => setCaretakerEscalation(Number(event.target.value))}>{[10, 15, 20, 30, 45, 60].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}</select></label><label>Family after<select disabled={role !== "Elder"} value={familyEscalation} onChange={(event) => setFamilyEscalation(Number(event.target.value))}>{[30, 45, 60, 90, 120].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}</select></label>{role === "Elder" && <button className="button button-outline" onClick={() => void act(() => api.updateCircle({ escalation_caretaker_minutes: caretakerEscalation, escalation_family_minutes: familyEscalation }), "Circle reminders updated.")}>Save reminder timing</button>}</div></section><section className="panel content-panel"><div className="panel-heading"><div><span className="eyebrow">ELDER CONSENT</span><h2>Changes, in the open</h2></div><span className="status-chip elder-chip">ELDER TASK</span></div>{pending.length ? pending.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} canDecide={role === "Elder"} onDecision={(decision) => void act(() => api.decide(proposal.id, decision), decision === "approved" ? "Your circle has been updated." : "Suggestion set aside.")} />) : <p className="empty-note">No suggestions waiting. This is your care, and your call.</p>}</section><section className="panel content-panel"><div className="panel-heading"><div><span className="eyebrow">THE LITTLE THINGS THAT CHANGED</span><h2>Circle notes</h2></div></div>{snapshot.audit.map((entry) => <div className="audit-row" key={entry.id}><span className="audit-dot" /><div><strong>{entry.action}</strong><p>{entry.detail}</p></div><time>{new Date(entry.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</time></div>)}</section></div>}
-        {view === "Letters" && <div className="page-content"><PageTitle eyebrow="A NOTE TO YOUR PEOPLE" title="Letters" note="A gentle weekly picture of how the week has been." /><section className="panel letter-panel"><div className="letter-stamp">✳</div><span className="eyebrow">SUNDAY LETTER · IN THE MAKING</span><h2>Small things, held in common.</h2><p>Your weekly letter will bring together the week’s medicines, appointments, and check-ins — just enough to keep your people close.</p><div className="letter-signoff">With care,<br /><em>Your Dhaaga circle</em></div><span className="status-chip circle-chip">CIRCLE TASK</span></section>{role !== "Family" && <section className="panel content-panel outbox-panel"><div className="panel-heading"><div><span className="eyebrow">EMAILS, AS THEY WOULD ARRIVE</span><h2>Circle outbox</h2></div><span className="status-chip circle-chip">{snapshot.outbox.length} MESSAGES</span></div>{snapshot.outbox.length ? snapshot.outbox.map((mail) => <article className="outbox-message" key={mail.id}><div><span className="eyebrow">{mail.kind.replace(/-/g, " ").toUpperCase()} · {mail.to_email}</span><strong>{mail.subject}</strong><time>{mail.sent_at ? `Sent ${new Date(mail.sent_at).toLocaleString("en-IN")}` : "Saved in outbox"}</time></div><p>{mail.body}</p></article>) : <p className="empty-note">No messages just yet. Gentle reminders will appear here when the scheduler has something to share.</p>}</section>}</div>}
+        {view === "Letters" && <div className="page-content"><PageTitle eyebrow="A NOTE TO YOUR PEOPLE" title="Letters" note="A gentle weekly picture of how the week has been." /><section className="panel letter-panel"><div className="letter-stamp">✳</div><span className="eyebrow">SUNDAY LETTER · PREVIEW · {letterPreview?.weekKey ?? "LOADING"}</span><h2>{letterPreview?.subject ?? "A small note from your week"}</h2>{letterPreview ? <p className="letter-preview-copy">{letterPreview.body}</p> : <p>Your weekly letter preview is being prepared from the circle’s records.</p>}<div className="letter-signoff">A deterministic preview · {letterPreview?.recipientCount ?? 0} Family recipients</div>{role !== "Family" && <button className="button button-dark letter-send" disabled={letterBusy || !letterPreview} onClick={() => void sendWeeklyLetterNow()}>{letterBusy ? "Preparing the letter…" : "Send this week’s letter now"} <span>↗</span></button>}</section>{role !== "Family" && <section className="panel content-panel outbox-panel"><div className="panel-heading"><div><span className="eyebrow">EMAILS, AS THEY WOULD ARRIVE</span><h2>Circle outbox</h2></div><span className="status-chip circle-chip">{snapshot.outbox.length} MESSAGES</span></div>{snapshot.outbox.length ? snapshot.outbox.map((mail) => <article className="outbox-message" key={mail.id}><div><span className="eyebrow">{mail.kind.replace(/-/g, " ").toUpperCase()} · {mail.to_email}</span><strong>{mail.subject}</strong><time>{mail.sent_at ? `Sent ${new Date(mail.sent_at).toLocaleString("en-IN")}` : "Saved in outbox"}</time></div><p>{mail.body}</p></article>) : <p className="empty-note">No messages just yet. Gentle reminders will appear here when the scheduler has something to share.</p>}</section>}</div>}
       </main>
       {notice && <div className="toast" role="status" aria-live="polite">{notice}<button onClick={() => setNotice("")}>×</button></div>}
       {medModal && <MedicineModal initial={medModal === "new" ? undefined : medModal} suggested={prescriptionDraft ?? undefined} onClose={() => { setMedModal(null); setPrescriptionDraft(null); }} onSubmit={(value) => void act(() => medModal === "new" ? api.addMedication(value) : api.updateMedication(medModal.id, value), role === "Caretaker" ? "Suggestion sent to the elder." : medModal === "new" ? "Medicine added to the thread." : "Medicine updated.")} />}

@@ -53,6 +53,19 @@ export interface DoctorBrief {
   questions: string[];
 }
 
+export interface WeeklyLetterPreview {
+  weekKey: string;
+  recipientCount: number;
+  subject: string;
+  body: string;
+}
+
+export interface WeeklyLetterSendResult extends WeeklyLetterPreview {
+  created: boolean;
+  sentAt: string | null;
+  polished: boolean;
+}
+
 export interface Snapshot {
   circle: { name: string; elder_name: string; timezone: string; caretaker_direct_edit: number; escalation_caretaker_minutes: number; escalation_family_minutes: number };
   member: { name: string; role: Role };
@@ -86,6 +99,8 @@ export const api = {
   bootstrap: () => request<Snapshot>("/bootstrap"),
   doctorBrief: () => request<DoctorBrief>("/brief"),
   saveBriefQuestions: (questions: string[]) => request<{ questions: string[] }>("/brief/questions", "PUT", { questions }),
+  weeklyLetterPreview: () => request<WeeklyLetterPreview>("/letter/preview"),
+  sendWeeklyLetterNow: () => request<WeeklyLetterSendResult>("/letter/send-now", "POST", {}),
   setDose: (id: number, status: "taken" | "skipped") => request(`/doses/${id}`, "PATCH", { status }),
   addMedication: (body: Omit<Medication, "id">) => request<{ proposal?: boolean }>("/medications", "POST", body),
   updateMedication: (id: number, body: Omit<Medication, "id">) => request(`/medications/${id}`, "PATCH", body),

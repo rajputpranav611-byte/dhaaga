@@ -334,10 +334,11 @@ h1, h2, h3, p { margin-top: 0; }
 .letter-panel { position: relative; max-width: 620px; min-height: 350px; margin: 35px auto; padding: 41px; box-shadow: 5px 5px 0 #d8cbb5; }
 .letter-stamp { width: 42px; height: 42px; margin-bottom: 19px; display: grid; place-items: center; border: 1px solid var(--terracotta); border-radius: 50%; color: var(--terracotta); font-size: 20px; }
 .letter-panel h2 { margin: 13px 0 9px; font: 500 25px var(--serif); }
-.letter-panel > p { max-width: 400px; color: #696257; font-size: 12px; line-height: 1.7; }
+.letter-panel > p { max-width: 540px; color: #696257; font-size: 12px; line-height: 1.7; }
+.letter-preview-copy { white-space: pre-line; }
 .letter-signoff { margin-top: 27px; color: #6b6459; font: 11px/1.7 var(--serif); }
 .letter-signoff em { color: var(--sage); font-size: 15px; }
-.letter-panel .status-chip { position: absolute; right: 17px; bottom: 17px; }
+.letter-send { margin-top: 18px; }
 .outbox-panel { margin: 0 auto; max-width: 760px; }
 .outbox-message { margin-top: 12px; padding: 14px 0; border-top: 1px solid #e8e0d1; }
 .outbox-message > div { display: grid; gap: 5px; }

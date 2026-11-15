@@ -8,9 +8,10 @@ import { DateTime } from "luxon";
 import { z } from "zod";
 import { db } from "./db";
 import { clearSession, loginLocked, parseSessionCookie, recordLoginFailure, requireAuth, requireMutationHeader, requireRoles, setSession, verifyPasscode, type AuthenticatedRequest } from "./security";
-import { runSchedulerTick, setDemoClockOffset, startScheduler } from "./scheduler";
+import { deliverPendingEmails, runSchedulerTick, setDemoClockOffset, startScheduler } from "./scheduler";
 import { findInteractionWarnings, transitionDose } from "./domain";
 import { appointmentSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, proposalDecisionSchema } from "./schemas";
+import { createWeeklyLetter, prepareWeeklyLetter } from "./weekly-letter";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -399,6 +400,28 @@ app.post("/api/checkins", requireAuth, requireRoles("Elder"), (req: Authenticate
     .run(auth.circleId, auth.memberId, parsed.data.mood, parsed.data.note, date);
   audit(auth, "Shared a check-in", `${auth.name} shared a daily wellbeing check-in.`);
   return res.json({ ok: true });
+});
+
+app.get("/api/letter/preview", requireAuth, async (req: AuthenticatedRequest, res) => {
+  const letter = await prepareWeeklyLetter(req.auth!.circleId, new Date(), false);
+  const recipients = db.prepare("SELECT COUNT(*) AS count FROM members WHERE circle_id = ? AND role = 'Family' AND email <> ''")
+    .get(req.auth!.circleId) as { count: number };
+  return res.json({ weekKey: letter.data.weekKey, recipientCount: recipients.count, subject: letter.subject, body: letter.body, data: letter.data });
+});
+
+app.post("/api/letter/send-now", requireAuth, requireRoles("Elder", "Caretaker"), async (req: AuthenticatedRequest, res) => {
+  const letter = await createWeeklyLetter(req.auth!.circleId, new Date());
+  if (!letter.recipientCount) return res.json({ ...letter, sent: 0 });
+  const dedupeKey = `sunday-letter:${req.auth!.circleId}:${letter.data.weekKey}`;
+  const saved = db.prepare("SELECT id, subject, body, sent_at FROM outbox WHERE dedupe_key = ?").get(dedupeKey) as { id: number; subject: string; body: string; sent_at: string | null } | undefined;
+  if (!saved) throw new Error("The weekly letter could not be found in the outbox after saving.");
+  try {
+    await deliverPendingEmails([saved.id]);
+  } catch {
+    return res.status(502).json({ error: "The letter is saved in the outbox, but email delivery failed. It is still available there." });
+  }
+  const delivered = db.prepare("SELECT sent_at FROM outbox WHERE id = ?").get(saved.id) as { sent_at: string | null };
+  return res.json({ ...letter, subject: saved.subject, body: saved.body, sentAt: delivered.sent_at, sent: Number(Boolean(delivered.sent_at)) });
 });
 
 app.get("/api/outbox", requireAuth, (req: AuthenticatedRequest, res) => {
