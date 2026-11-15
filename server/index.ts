@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
+import compression from "compression";
 import multer from "multer";
 import { DateTime } from "luxon";
 import { z } from "zod";
@@ -10,7 +11,7 @@ import { db } from "./db";
 import { clearSession, loginLocked, parseSessionCookie, recordLoginFailure, requireAuth, requireMutationHeader, requireRoles, setSession, verifyPasscode, type AuthenticatedRequest } from "./security";
 import { deliverPendingEmails, runSchedulerTick, setDemoClockOffset, startScheduler } from "./scheduler";
 import { findInteractionWarnings, transitionDose } from "./domain";
-import { appointmentSchema, askDhaagaCandidateSchema, askDhaagaCommandSchema, askDhaagaProposalSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, prescriptionDraftSchema, proposalDecisionSchema } from "./schemas";
+import { appointmentSchema, type askDhaagaCandidateSchema, askDhaagaCommandSchema, askDhaagaProposalSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, prescriptionDraftSchema, proposalDecisionSchema } from "./schemas";
 import { createWeeklyLetter, prepareWeeklyLetter } from "./weekly-letter";
 import { parseAskDhaagaCommand } from "./ask-dhaaga";
 import { collectWeekBraid } from "./week-braid";
@@ -23,6 +24,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 *
 
 app.disable("x-powered-by");
 app.use(helmet({ crossOriginResourcePolicy: { policy: "same-site" } }));
+app.use(compression());
 app.use(cors({ origin: (origin, callback) => {
   if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
   return callback(new Error("Origin is not allowed"));
@@ -484,7 +486,7 @@ app.get("/api/outbox", requireAuth, (req: AuthenticatedRequest, res) => {
 
 app.post("/api/demo/clock", requireAuth, requireRoles("Elder"), async (req: AuthenticatedRequest, res) => {
   if (!demoMode) return res.status(404).json({ error: "Demo tools are not enabled." });
-  const parsed = z.object({ minutes: z.number().int().min(1).max(120) }).safeParse(req.body);
+  const parsed = z.object({ minutes: z.number().int().min(1).max(1440) }).safeParse(req.body);
   if (!parsed.success) return invalid(res, parsed.error);
   const offset = setDemoClockOffset(parsed.data.minutes);
   const result = await runSchedulerTick(() => new Date(Date.now() + offset));
@@ -539,7 +541,7 @@ app.post("/api/prescription-draft", requireAuth, requireRoles("Elder", "Caretake
       const parsed = prescriptionDraftSchema.safeParse(JSON.parse(raw ?? ""));
       if (!parsed.success) return res.status(502).json({ error: "The prescription was read, but its details need to be entered by hand." });
       suggestion = parsed.data;
-    } catch (error) {
+    } catch {
       console.error("Prescription parsing could not complete.");
       return res.status(502).json({ error: "The prescription could not be read just now. You can enter the details by hand." });
     }
@@ -558,7 +560,6 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port, () => {
-    console.log(`Dhaaga API listening on http://localhost:${port}`);
     startScheduler();
   });
 }

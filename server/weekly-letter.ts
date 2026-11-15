@@ -163,7 +163,6 @@ export async function prepareWeeklyLetter(circleId: number, now = new Date(), po
   } catch {
     return { data, subject, body: template, polished: false };
   }
-  return { data, subject, body: template, polished: false };
 }
 
 export async function createWeeklyLetter(circleId: number, now = new Date()) {

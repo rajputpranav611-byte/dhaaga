@@ -135,8 +135,23 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   locked_until TEXT
 );
 CREATE INDEX IF NOT EXISTS dose_events_circle_time ON dose_events(circle_id, scheduled_at);
+CREATE INDEX IF NOT EXISTS dose_events_due ON dose_events(scheduled_at, status);
+CREATE INDEX IF NOT EXISTS dose_events_medication ON dose_events(medication_id);
+CREATE INDEX IF NOT EXISTS circle_codes_circle ON circle_codes(circle_id);
+CREATE INDEX IF NOT EXISTS members_circle_role ON members(circle_id, role);
+CREATE INDEX IF NOT EXISTS medications_circle_active ON medications(circle_id, active);
+CREATE INDEX IF NOT EXISTS schedules_medication ON schedules(medication_id);
+CREATE INDEX IF NOT EXISTS appointments_circle_start ON appointments(circle_id, starts_at);
+CREATE INDEX IF NOT EXISTS appointments_start ON appointments(starts_at);
+CREATE INDEX IF NOT EXISTS proposals_circle_status_created ON proposals(circle_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS checkins_circle_date ON checkins(circle_id, date);
 CREATE INDEX IF NOT EXISTS outbox_circle ON outbox(circle_id, id);
+CREATE INDEX IF NOT EXISTS outbox_dedupe ON outbox(dedupe_key);
+CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(sent_at, id);
 CREATE INDEX IF NOT EXISTS audit_circle ON audit_log(circle_id, id DESC);
+CREATE INDEX IF NOT EXISTS sessions_member ON sessions(member_id);
+CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS login_attempts_ip_circle_time ON login_attempts(ip, circle_slug, attempted_at);
 `);
 
 const circleColumns = db.pragma("table_info(circles)") as { name: string }[];

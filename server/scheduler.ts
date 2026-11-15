@@ -47,19 +47,46 @@ export async function deliverPendingEmails(onlyIds?: number[]) {
 export async function runSchedulerTick(clock: Clock = demoClock): Promise<ReminderResult> {
   const now = clock();
   const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+  const recentCutoff = new Date(nowMs - 24 * 60 * 60_000).toISOString();
+  const dueCutoff = new Date(nowMs - 5 * 60_000).toISOString();
+  const upcomingCutoff = new Date(nowMs + 15 * 60_000).toISOString();
   let created = 0;
-  const doseRows = db.prepare(`
+  const joinedDoseRows = db.prepare(`
     SELECT d.id, d.circle_id, d.status, d.scheduled_at, d.medication_id, m.name AS medication,
-           c.timezone, c.elder_name, c.escalation_caretaker_minutes, c.escalation_family_minutes
+           c.timezone, c.elder_name, c.escalation_caretaker_minutes, c.escalation_family_minutes,
+           recipient.role AS recipient_role, recipient.email AS recipient_email
     FROM dose_events d
     JOIN medications m ON m.id = d.medication_id
     JOIN circles c ON c.id = d.circle_id
+    LEFT JOIN members recipient ON recipient.circle_id = d.circle_id
+      AND recipient.email <> '' AND recipient.role IN ('Elder','Caretaker','Family')
     WHERE d.status IN ('pending','missed')
-  `).all() as { id: number; circle_id: number; status: string; scheduled_at: string; medication_id: number; medication: string; timezone: string; elder_name: string; escalation_caretaker_minutes: number; escalation_family_minutes: number }[];
-  for (const dose of doseRows) {
+      AND d.scheduled_at >= ? AND d.scheduled_at <= ?
+      AND (d.scheduled_at >= ? OR d.scheduled_at <= ?)
+    ORDER BY d.id
+  `).all(recentCutoff, upcomingCutoff, nowIso, dueCutoff) as {
+    id: number; circle_id: number; status: string; scheduled_at: string; medication_id: number;
+    medication: string; timezone: string; elder_name: string; escalation_caretaker_minutes: number;
+    escalation_family_minutes: number; recipient_role: string | null; recipient_email: string | null;
+  }[];
+  const doses = new Map<number, {
+    id: number; circle_id: number; status: string; scheduled_at: string; medication_id: number;
+    medication: string; timezone: string; elder_name: string; escalation_caretaker_minutes: number;
+    escalation_family_minutes: number; people: { role: string; email: string }[];
+  }>();
+  for (const row of joinedDoseRows) {
+    let dose = doses.get(row.id);
+    if (!dose) {
+      dose = { ...row, people: [] };
+      doses.set(row.id, dose);
+    }
+    if (row.recipient_role && row.recipient_email) dose.people.push({ role: row.recipient_role, email: row.recipient_email });
+  }
+  for (const dose of doses.values()) {
     const at = Date.parse(dose.scheduled_at);
     if (!Number.isFinite(at)) continue;
-    const people = db.prepare("SELECT role, email FROM members WHERE circle_id = ? AND email <> ''").all(dose.circle_id) as { role: string; email: string }[];
+    const people = dose.people;
     const elder = people.find((person) => person.role === "Elder");
     const caretakers = people.filter((person) => person.role === "Caretaker");
     const family = people.filter((person) => person.role === "Family");
@@ -83,20 +110,22 @@ export async function runSchedulerTick(clock: Clock = demoClock): Promise<Remind
       }
     }
   }
-  const appointments = db.prepare(`
-    SELECT a.id, a.circle_id, a.doctor, a.starts_at, c.timezone, c.elder_name
+  const appointmentRows = db.prepare(`
+    SELECT a.id, a.circle_id, a.doctor, a.starts_at, c.timezone, c.elder_name, elder.email AS elder_email
     FROM appointments a JOIN circles c ON c.id = a.circle_id
-    WHERE a.starts_at > ?
-  `).all(new Date(nowMs - 24 * 60 * 60_000).toISOString()) as { id: number; circle_id: number; doctor: string; starts_at: string; timezone: string; elder_name: string }[];
-  for (const appointment of appointments) {
+    JOIN members elder ON elder.circle_id = a.circle_id AND elder.role = 'Elder' AND elder.email <> ''
+    WHERE a.starts_at >= ? AND a.starts_at <= ?
+    ORDER BY a.id
+  `).all(nowIso, new Date(nowMs + 24.5 * 60 * 60_000).toISOString()) as {
+    id: number; circle_id: number; doctor: string; starts_at: string; timezone: string;
+    elder_name: string; elder_email: string;
+  }[];
+  for (const appointment of appointmentRows) {
     const lead = Date.parse(appointment.starts_at) - nowMs;
     if (lead <= 0 || (lead > 24 * 60 * 60_000 && lead > 2 * 60 * 60_000)) continue;
     const bucket = lead <= 2 * 60 * 60_000 ? "2h" : "24h";
     if (Math.abs(lead - (bucket === "2h" ? 2 * 60 * 60_000 : 24 * 60 * 60_000)) > 30 * 60_000) continue;
-    const members = db.prepare("SELECT email FROM members WHERE circle_id = ? AND role = 'Elder' AND email <> ''").all(appointment.circle_id) as { email: string }[];
-    for (const person of members) {
-      if (makeOutbox(appointment.circle_id, "appointment", person.email, `A note before your visit with ${appointment.doctor}`, `Hello ${appointment.elder_name}, a gentle reminder that your appointment with ${appointment.doctor} is ${bucket === "2h" ? "in about two hours" : "tomorrow"}.`, `appointment:${appointment.id}:${bucket}:${person.email}`)) created++;
-    }
+    if (makeOutbox(appointment.circle_id, "appointment", appointment.elder_email, `A note before your visit with ${appointment.doctor}`, `Hello ${appointment.elder_name}, a gentle reminder that your appointment with ${appointment.doctor} is ${bucket === "2h" ? "in about two hours" : "tomorrow"}.`, `appointment:${appointment.id}:${bucket}:${appointment.elder_email}`)) created++;
   }
   const circles = db.prepare("SELECT id, timezone FROM circles").all() as { id: number; timezone: string }[];
   for (const circle of circles) {

@@ -12,6 +12,7 @@ Controls implemented:
 - A custom `X-Dhaaga-Action` header is required for state-changing API requests. CORS allows only configured origins (localhost defaults are for development).
 - Helmet headers, strict JSON body limits, Zod request validation, role middleware, circle-scoped queries, and in-memory upload limits are enabled.
 - Prescription images are MIME- and signature-checked, limited to 4 MB, processed from memory, and never persisted. Email HTML bodies are escaped.
+- Ask Dhaaga command text can be sent to Gemini for structured parsing when `GEMINI_API_KEY` is configured. Weekly-letter polishing can send the letter’s source data (including health details) to Gemini; without a key, parsing and letter writing are deterministic and local.
 - Application logs avoid member content, email addresses, passcodes, and request payloads.
 
 ## Known limits
@@ -19,7 +20,7 @@ Controls implemented:
 - A six-digit role-shared passcode depends on rate limiting; it is not equivalent to individual multi-factor authentication. There is no passcode recovery flow or role-code rotation UI.
 - SQLite is not encrypted at rest by the app. Protect the host, database file, backups, and outbox as sensitive data.
 - Configure a strong `SESSION_SECRET`, HTTPS termination, production CORS origins, database backups, and access controls before deployment. The default local session secret is development-only.
-- If Gemini is enabled, the selected prescription image is sent to Google for parsing, and interaction-finding text (which can include medicine names) may be sent for plain-language rewriting. Review provider terms and obtain appropriate consent before using real health information.
+- If Gemini is enabled, prescription images, Ask Dhaaga command text, interaction-finding text, and weekly-letter source data may be sent to Google for processing. Review provider terms and obtain appropriate consent before using real health information.
 - Reminder delivery depends on scheduler uptime and the configured email provider. Outbox deduplication prevents repeated sends, but this is not a guaranteed delivery system.
 - The interaction list is a small starter list, not a complete drug-interaction database. It cannot replace a doctor or pharmacist.
 - Dhaaga is not a certified medical device and does not provide diagnosis, treatment, or medication instructions. Users should follow their care team’s instructions.

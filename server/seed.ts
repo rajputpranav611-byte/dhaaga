@@ -59,4 +59,3 @@ if (!eventCount.count) {
     }
   }
 }
-console.log("Seeded Tulsi Circle. Demo passcodes: Elder 111111, Caretaker 222222, Family 333333.");

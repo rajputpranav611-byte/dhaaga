@@ -8,7 +8,9 @@
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "lint": "biome lint src server tests vite.config.ts",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "seed": "tsx server/seed.ts",
     "preview": "vite preview --host 0.0.0.0"
   },
@@ -19,6 +21,7 @@
     "@fontsource/noto-sans-gujarati": "^5.2.6",
     "@google/genai": "^1.11.0",
     "better-sqlite3": "^12.2.0",
+    "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -29,7 +32,9 @@
     "zod": "^4.0.17"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.7",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.9",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
@@ -37,6 +42,8 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.3.0",
     "@vitejs/plugin-react": "^5.0.2",
+    "@vitest/coverage-v8": "^5.1.0",
+    "axe-core": "^4.14.0",
     "concurrently": "^9.2.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",

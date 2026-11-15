@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.DHAAGA_DB = ":memory:";
 process.env.NODE_ENV = "test";
@@ -192,6 +192,75 @@ describe("Dhaaga core flows", () => {
     expect(appointment).toMatchObject({ intent: "appointment", confident: true, appointment: { doctor: "Dr. Shah" } });
   });
 
+  it("handles ambiguous and time-word commands without inventing details", async () => {
+    const now = new Date("2025-01-06T06:00:00.000Z");
+    const unknown = await askDhaaga.parseAskDhaagaCommand("Help me plan the week", "Asia/Kolkata", now);
+    expect(unknown).toMatchObject({ intent: "unknown", confident: false });
+
+    const timeWords = await askDhaaga.parseAskDhaagaCommand(
+      "schedule Papa's Metformin 500 mg morning evening night every day",
+      "Asia/Kolkata",
+      now,
+    );
+    expect(timeWords).toMatchObject({
+      intent: "medicine",
+      confident: true,
+      medicine: {
+        name: "Metformin",
+        schedule: ["8:00 AM", "6:00 PM", "8:00 PM"],
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      },
+    });
+
+    const uncertainAppointment = await askDhaaga.parseAskDhaagaCommand(
+      "book an appointment next week",
+      "Asia/Kolkata",
+      now,
+    );
+    expect(uncertainAppointment).toMatchObject({ intent: "appointment", confident: false });
+
+    const datedAppointment = await askDhaaga.parseAskDhaagaCommand(
+      "book an appointment with Dr. Shah on 20 Nov 2026 at 3:30 pm",
+      "Asia/Kolkata",
+      now,
+    );
+    expect(datedAppointment).toMatchObject({
+      intent: "appointment",
+      confident: true,
+      appointment: { doctor: "Dr. Shah", starts_at: "2026-11-20T10:00:00.000Z" },
+    });
+  });
+
+  it("validates Gemini Ask Dhaaga output and rejects malformed responses", async () => {
+    const previousKey = process.env.GEMINI_API_KEY;
+    let responseText = JSON.stringify({
+      intent: "medicine",
+      confident: true,
+      medicine: { name: "Aspirin", dose: "1 tablet", instructions: "", schedule: ["8:00 PM"], days: ["Mon"] },
+      appointment: { doctor: "", specialty: "", place: "", notes: "", starts_at: "" },
+    });
+    process.env.GEMINI_API_KEY = "test-key";
+    vi.doMock("@google/genai", () => ({
+      GoogleGenAI: class {
+        models = { generateContent: async () => ({ text: responseText }) };
+      },
+    }));
+
+    try {
+      expect(await askDhaaga.parseAskDhaagaCommand("add aspirin", "Asia/Kolkata"))
+        .toMatchObject({ intent: "medicine", confident: true });
+      responseText = "{";
+      await expect(askDhaaga.parseAskDhaagaCommand("add aspirin", "Asia/Kolkata"))
+        .rejects.toThrow("could not be parsed");
+      responseText = "{}";
+      await expect(askDhaaga.parseAskDhaagaCommand("add aspirin", "Asia/Kolkata"))
+        .rejects.toThrow("unexpected format");
+    } finally {
+      vi.doUnmock("@google/genai");
+      process.env.GEMINI_API_KEY = previousKey;
+    }
+  });
+
   it("keeps Ask Dhaaga output as proposals and checks medicine interactions", async () => {
     const caretakerCookie = await signIn("Caretaker", "Nila");
     const incomplete = await fetch(`${baseUrl}/ask-dhaaga`, {
@@ -343,6 +412,28 @@ describe("Dhaaga core flows", () => {
     expect(familyOutbox.status).toBe(403);
   });
 
+  it("rejects every protected API route without a session for all claimed roles", async () => {
+    const routes = [
+      ["GET", "/bootstrap"], ["GET", "/brief"], ["GET", "/letter/preview"], ["GET", "/outbox"],
+      ["PUT", "/brief/questions"], ["PATCH", "/circle"], ["POST", "/medications"],
+      ["POST", "/ask-dhaaga"], ["POST", "/ask-dhaaga/proposal"], ["PATCH", `/medications/${medicationId}`],
+      ["DELETE", `/medications/${medicationId}`], ["PATCH", "/doses/99999"], ["POST", "/appointments"],
+      ["PATCH", "/appointments/99999"], ["DELETE", "/appointments/99999"], ["PATCH", "/proposals/99999"],
+      ["POST", "/checkins"], ["POST", "/letter/send-now"], ["POST", "/demo/clock"],
+      ["POST", "/interactions"], ["POST", "/prescription-draft"],
+    ] as const;
+    for (const role of ["Elder", "Caretaker", "Family"] as const) {
+      for (const [method, path] of routes) {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers: { "Content-Type": "application/json", "X-Dhaaga-Action": "1", "X-Dhaaga-Role": role },
+          body: method === "GET" ? undefined : JSON.stringify({ role, minutes: 1 }),
+        });
+        expect(response.status, `${role} without a session: ${method} ${path}`).toBe(401);
+      }
+    }
+  });
+
   it("keeps caretaker medicine create, edit, and removal as proposals while Elder changes apply", async () => {
     const caretakerCookie = await signIn("Caretaker", "Nila");
     const body = { name: "Role matrix medicine", dose: "1 tablet", instructions: "", schedule: ["8:00 AM"], days: ["Mon"] };
@@ -425,7 +516,7 @@ describe("Dhaaga core flows", () => {
     const clock = await fetch(`${baseUrl}/demo/clock`, {
       method: "POST",
       headers: { Cookie: elderCookie, "Content-Type": "application/json", "X-Dhaaga-Action": "1" },
-      body: JSON.stringify({ minutes: 1 }),
+      body: JSON.stringify({ minutes: 121 }),
     });
     expect(clock.status).toBe(200);
     scheduler.resetDemoClockOffset();

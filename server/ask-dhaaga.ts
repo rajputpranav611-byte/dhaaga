@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { z } from "zod";
+import type { z } from "zod";
 import { askDhaagaCandidateSchema, appointmentSchema, medicationSchema } from "./schemas";
 
 type Candidate = z.infer<typeof askDhaagaCandidateSchema>;
