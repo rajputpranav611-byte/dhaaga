@@ -10,7 +10,7 @@ import { db } from "./db";
 import { clearSession, loginLocked, parseSessionCookie, recordLoginFailure, requireAuth, requireMutationHeader, requireRoles, setSession, verifyPasscode, type AuthenticatedRequest } from "./security";
 import { deliverPendingEmails, runSchedulerTick, setDemoClockOffset, startScheduler } from "./scheduler";
 import { findInteractionWarnings, transitionDose } from "./domain";
-import { appointmentSchema, askDhaagaCandidateSchema, askDhaagaCommandSchema, askDhaagaProposalSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, proposalDecisionSchema } from "./schemas";
+import { appointmentSchema, askDhaagaCandidateSchema, askDhaagaCommandSchema, askDhaagaProposalSchema, briefQuestionsSchema, checkinSchema, doseStatusSchema, loginSchema, medicationSchema, prescriptionDraftSchema, proposalDecisionSchema } from "./schemas";
 import { createWeeklyLetter, prepareWeeklyLetter } from "./weekly-letter";
 import { parseAskDhaagaCommand } from "./ask-dhaaga";
 
@@ -535,7 +535,7 @@ app.post("/api/prescription-draft", requireAuth, requireRoles("Elder", "Caretake
         contents: [{ inlineData: { mimeType: req.file.mimetype, data: bytes.toString("base64") } }, { text: "Read this prescription and return JSON only with name, dose, instructions, and schedule (array of 12-hour times). Do not infer missing details; use empty strings or an empty array." }],
       });
       const raw = answer.text?.replace(/```(?:json)?|```/g, "").trim();
-      const parsed = medicationSchema.pick({ name: true, dose: true, instructions: true, schedule: true }).safeParse(JSON.parse(raw ?? ""));
+      const parsed = prescriptionDraftSchema.safeParse(JSON.parse(raw ?? ""));
       if (!parsed.success) return res.status(502).json({ error: "The prescription was read, but its details need to be entered by hand." });
       suggestion = parsed.data;
     } catch (error) {
@@ -543,7 +543,7 @@ app.post("/api/prescription-draft", requireAuth, requireRoles("Elder", "Caretake
       return res.status(502).json({ error: "The prescription could not be read just now. You can enter the details by hand." });
     }
   }
-  return res.json({ draft: medicationSchema.pick({ name: true, dose: true, instructions: true, schedule: true }).parse(suggestion), needs_elder_confirmation: true, image_stored: false });
+  return res.json({ draft: prescriptionDraftSchema.parse(suggestion), needs_elder_confirmation: true, image_stored: false });
 });
 
 app.get("/api/demo", (_req, res) => res.json({ enabled: demoMode }));

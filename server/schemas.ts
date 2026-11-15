@@ -15,6 +15,7 @@ export const medicationSchema = z.object({
   schedule: z.array(z.string().regex(/^(0?[1-9]|1[0-2]):[0-5]\d (AM|PM)$/i)).min(1).max(8),
   days: z.array(z.enum(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])).min(1).max(7),
 });
+export const prescriptionDraftSchema = medicationSchema.pick({ name: true, dose: true, instructions: true, schedule: true });
 export const appointmentSchema = z.object({
   doctor: z.string().trim().min(1).max(100),
   specialty: z.string().trim().max(100),

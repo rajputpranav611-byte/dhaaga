@@ -138,6 +138,14 @@ export function containsOnlyProvidedNumbers(candidate: string, source: string) {
   return facts(candidate).every((fact) => provided.has(fact));
 }
 
+export function validatePolishedWeeklyLetter(candidate: string, data: WeeklyLetterData, template: string) {
+  const parsed = z.string().trim().min(1).max(5000).safeParse(candidate);
+  if (!parsed.success || !containsOnlyProvidedNumbers(parsed.data, `${JSON.stringify(data)}\n${template}`)) {
+    return { body: template, polished: false };
+  }
+  return { body: parsed.data, polished: true };
+}
+
 export async function prepareWeeklyLetter(circleId: number, now = new Date(), polish = true) {
   const data = collectWeeklyLetterData(circleId, now);
   const subject = `A small note from ${data.elderName}’s week`;
@@ -151,10 +159,7 @@ export async function prepareWeeklyLetter(circleId: number, now = new Date(), po
       model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
       contents: `Gently polish the wording of this family letter. Do not add, remove, or change facts. Do not introduce any number unless it appears in the supplied source. Return only the revised letter body.\nSOURCE DATA: ${JSON.stringify(data)}\nTEMPLATE:\n${template}`,
     });
-    const candidate = z.string().trim().min(1).max(5000).safeParse(response.text ?? "");
-    if (candidate.success && containsOnlyProvidedNumbers(candidate.data, `${JSON.stringify(data)}\n${template}`)) {
-      return { data, subject, body: candidate.data, polished: true };
-    }
+    return { data, subject, ...validatePolishedWeeklyLetter(response.text ?? "", data, template) };
   } catch {
     return { data, subject, body: template, polished: false };
   }
